@@ -63,7 +63,7 @@ datWDM <- make_data(parsWDM,designWDM,n_trials=1e4)
 # Here we see the data format used by EMC2. Trials is added to simulated data
 # but need not be in real data.
 
-# UPCOMING
+# !UPCOMING!
 # Also, the LT/UT/LC/UC columns indicate
 # whether an truncation (T) or Censoring (C) has been applied to the upper (U)
 # or lower (L) end of the rt distribution. Again these need not be added to
