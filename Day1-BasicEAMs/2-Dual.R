@@ -560,7 +560,7 @@ recovery(emc,credint(sWDM)[[1]][,"50%"])
 # designDDM <- design(model=DDM,data=dat,LT=.2,
 #   formula=list(a~E,v~0+S/CI,Z~1,t0~1,st0~1,sv~1,SZ~1)
 # )
-designDDM <- design(model=DDM,data=dat,LT=.2,
+designDDM <- design(model=DDM,data=dat,
   formula=list(a~E,v~0+S/CI,Z~1,t0~1,st0~1,sv~1,SZ~1)
 )
 
@@ -610,9 +610,130 @@ plot_pars(sDDM,layout=c(2,6),use_prior_lim=FALSE,map=TRUE)
 credint(sDDM)
 
 
+#### Transformations in EMC2 ----
 
+# When we look at the DDM help we see that two types of transformation are applied
+# after mapping the parameter to the design. The defaults shown below are choosen
+# so that the mapped parameters respect any scale restrictions applicable to a
+# PARAMETER TYPE
+DDM()$p_types
 
+# Note that the values are default values on the sampling scale.
 
+# For the DDM only rates are on the natural scale
+
+# Parameter	Transform	      Natural	  Default	Mapping	Interpretation
+# v         [-Inf, Inf]	    1		      Mean evidence-accumulation rate (drift rate)
+
+# Positivity enforced by log scaling for most of the remaining parameters
+
+# Parameter	Transform	      Natural	  Default	Mapping	Interpretation
+# a	        log	[0, Inf]	  log(1)		Boundary separation
+# t0	      log	[0, Inf]	  log(0)		Non-decision time
+# s	        log	[0, Inf]	  log(1)		Within-trial standard deviation of drift rate
+# sv	      log	[0, Inf]	  log(0)		Between-trial standard deviation of drift rate
+# st0	      log	[0, Inf]	  log(0)		Between-trial variation (range) in non-decision time
+
+# Doubly bounded scales are enforced by a probit transform.
+# Z	        probit	[0, 1]	qnorm(0.5) z = Z x a	  Relative start point (bias)
+# SZ	      probit	[0, 1]	qnorm(0)	sz = 2 x SZ x min(a x Z, a x (1-Z))
+#                           Relative between-trial variation in start point
+
+# NB: SZ must be bounded in a way that makes sure that z stays in 0-a. This is
+#     achieved by making the bounded mapping in terms of the proportion of the
+#     distance from z to the nearest boundary (either (1-Z)*a or Z*a) doubled
+#     (so it has a similar interpretation to Z which is a proportion of the
+#     double the distance to the nearest boundary when unbiased). These
+#     mappings are defined in the model function
+DDM()$Ttransform
+
+# So are the default transformation
+DDM()$transform
+
+# Although it is not used here EMC2 also gives you control over these transforms.
+
+# For example, suppose you wanted to keep t0 to be greater than 0.2 seconds
+# because you know in your task that is the fastest possible stimulus-driven
+# response.
+
+# To define our own transform we pass a list to design defining it, which
+# in this case is the same "func" (a named vector of function names).
+
+# When func = "exp" we can also pass a lower bound, so the transform that is
+# applied to transform p back to the natural scale is lower + exp(p)
+trans = list(func=c(t0 = "exp"),lower=c(t0=.15))
+
+# NB: You pass the inverse of the transformation listed in the help, for log
+#     it is "exp" and for probit it is "pnorm"
+
+# That is then passed to design's transform argument (default values are added
+# for anything omitted)
+design(model=DDM,data=dat,transform=trans,
+  formula=list(a~E,v~0+S/CI,Z~1,t0~1,st0~1,sv~1,SZ~1)
+)
+
+# Further, suppose you wanted to keep v in the range .1 - 10. We can combine
+# the cases as follows, noting that the probit transform (with inverse function
+# "pnorm") allows specifying upper as well as lower values, with the defaults
+# being lower=0 and upper=1:
+
+trans = list(func=c(t0 = "exp",v="pnorm"),lower=c(t0=.15,v=0.1),upper=c(v=10))
+
+# You can even provide a transformation that does not ensure the estimates
+# remain sensible. This might, for example, if you wanted to paraemterize t0
+# in a way that allowed additivity on the natural scale.
+
+trans = list(func=c(t0 = "identity"))
+
+# As lower is not available for identity (ALTHOUGH IT IS SILENTLY INGORED) we
+# need another way of enforcing sensible estimates.
+
+# EMC2 provides a second way of keeping estimated parameters within a range by
+# specifying bounds outside of which the likelihood is set to a low value
+# (1e-10 by default).
+
+# First lets look at the default values. For example, t0 has a lower bound of
+# 0.05 seconds, a very conservative setting we will now adjust.
+
+# The other default bounds are mainly used in the DDM to avoid very small or
+# large parameter values to stop numerical issues occurring during sampling when
+# evaluating the DDM likelihood via numerical integration
+DDM()$bound
+
+# NB: The exception element allows special cases like no between-trial noise
+#      which fall outside the bounded range.
+
+# In our case lets keep t0 greater than 0.15 seconds
+bound <- list(minmax = cbind(t0=c(0.15,Inf)))
+design(model=DDM,data=dat,transform=trans,bound=bound,
+  formula=list(a~E,v~0+S/CI,Z~1,t0~1,st0~1,sv~1,SZ~1)
+)
+
+# Transformations are applied to parameter TYPE AFTER MAPPING.
+
+# # !UPCOMING!
+#
+# # A further argument to design allows transformations to be applied to SAMPLED
+# # PARAMETERS BEFORE MAPPING.
+#
+# # This is particularly useful for enforcing the directions that are often
+# # implied by the PSYCHOLOGICAL INTERPRITABILITY OF AN EFFECT.
+#
+# # For example, suppose we wanted to only estimate a larger threshold for the
+# # speed than accuracy condition. As we can only enforce positivity with "exp"
+# # we will first flip the estimated effect direction by flipping the order of
+# # the levels of the E factor:
+# dat1 <- dat
+# dat1$E <- factor(as.character(dat1$E),levels=c("speed","accuracy"))
+#
+# # We then provide a named list to the pretransform argument of design
+# dDDM1 <- design(model=DDM,data=dat1,pre_transform=list(a_Eaccuracy="exp"),
+#   formula=list(a~E,v~0+S/CI,Z~1,t0~1,st0~1,sv~1,SZ~1)
+# )
+#
+# # NB: There is a bug so pre_transform is ignored, and it is also undocumented.
+# #     We can see this by extracting the modified model from the design object
+# dDDM1$model()$pre_transform
 
 
 
