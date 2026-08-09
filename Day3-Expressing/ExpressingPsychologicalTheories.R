@@ -1,0 +1,399 @@
+rm(list = ls())
+library(EMC2)
+
+#### A complicated design ----
+
+# This script demonstrates how to specify a cognitive process evidence
+# accumulation model (EAM) within linear-model language in EMC2. Specifically,
+# the Prospective Memory (PM) Decision Control (PMDC) model includes
+# psychological processes  that map to linear combinations of parameters,
+# embedded in contrasts.
+
+# More information on PM and the model can be found in:
+# Strickland, L., Loft, S., Remington, R. W., & Heathcote, A. (2018).
+#  Racing to remember: A theory of decision control in event-based
+#  prospective memory. Psychological review, 125(6), 851-887.
+#  https://doi.org/10.1037/rev0000113
+
+# The following addresses the first part of the scripts at https://osf.io/u7da4
+# for the following paper:
+
+# Strickland, L., Boag, R. J., Stevenson, N., & Heathcote, A. (2026).
+# A practical guide to expressing psychological theories in evidence accumulation
+# models, Behavior Research Methods
+#
+# We demonstrate how to fit PMDC to a lexical-decision task (the "ongoing" task),
+# in which participants decide whether letter strings are words (w) or
+# non-words (n). In half of the blocks of trials (C = control condition) this
+# is the only task. In the other half (PM) a minority of stimuli (p) require a
+# third prospective memory response (e.g., animal words).
+
+# Hence, C blocks we require an architecture with only 2 accumulators
+# whereas on PM blocks we require 3 accumulators.
+
+# We will use an example data set taken from Strickland et al. (2018)
+print(load("data/simple_data.RData"))
+lapply(dats,levels)
+
+# We will define contrasts to convert psychological processes from PMDC into
+# "mapped" parameters for the LBA likelihood. The contrast equations are
+# represented by a matrix, which will later be supplied to a EMC2's design
+# function.
+
+# #### Four Key Psychological Processes in the PMDC Model
+#
+# The key PMDC processes determining accumulation rates include:
+#
+#   1) **Ongoing-task quality (qual):**
+#   - The difference between the matching ("correct") ongoing task accumulation
+#     rate and mismatching accumulation rate.
+#   - *Indexes how good ongoing-task processing is (discrimination quality)*
+#
+#   2) **Ongoing-task urgency (urg):**
+#   - The sum of matching and mismatching ongoing-task accumulation rates.
+#   - *Indexes how fast processing is.*
+#
+#   3) **Feedforward inhibition induced by PM inputs (inh):**
+#   - The difference between ongoing-task accumulation rates in non-PM vs. PM trials.
+#   - *Indexes the extent to which PM inputs slow the accumulation of the OT.*
+#
+# It also allows adaptations to thresholds to meet PM demands.
+
+#   4) **Proactive Control**
+#   - For example, an increase in ongoing-task thresholds in PM conditions
+#     relative to control.
+#   - Measures how participants strategically delay ongoing-task responding to
+#     make more time for PM accumulation/retrieval
+
+
+# Some bespoke utility functions
+source("utility_functions.R")
+
+#### Custom contrasts ----
+
+# We use a custom mapping contrast matrix to embed the accumulation-rate based
+# processes from PMDC. In this contrast matrix,
+#
+# - **Rows** define linear combinations required for each mapped accumulation rate.
+# - **Columns** define the parameters used to create the mapped accumulation rates.
+#
+# We  create 4 quality/urgency pairs (one for each C/PM x w/n condition),
+# defining the column and row names for the matrix.
+
+# We also include three PM-specific parameters,
+# - the PM accumulation rate,
+# - PM-induced inhibition of ongoing-task accumulation, and
+# - the PM "false alarm" accumulation rate on non-PM trials.
+
+# Define stimulus types, conditions, and response levels
+S <- c("n", "w", "p")      # Stimulus types (S): non-word, word, PM (lexical decision task)
+cond <- c("C", "PM")       # Conditions (cond): control, PM (blocked condition)
+Rlevels <- c("N","W","P")  # Response levels (Rlevels): non-word, word, PM
+
+# Next, we generate names for the 18 rates based on the fully crossed design,
+# that is, 3 accumulators (N/W/P) x 3 stimulus types (n/w/p) x 2 block types (C/P)
+# These 18 rates will be accounted for by the 11 model parameters
+
+# Make an empty design matrix of zeros (the default of not mapping a parameter
+# to a cell)
+rate_design <- matrix(0,nrow=18, ncol=11)
+
+# Make the names for the 18 cells
+cells <- as.vector(outer(
+  outer(Rlevels, S,paste0),
+  cond, paste0))
+rownames(rate_design) <- cells
+
+# Make the names for the parameters
+colnames(rate_design) <-
+  c("qualwC", "urgwC", "qualnC", "urgnC",
+    "qualwPM", "urgwPM", "qualnPM", "urgnPM",
+    "PMR", "inh", "fa")
+
+#### PM accumulator rates
+# PMR is PM accumulator (P) rate for PM stimuli in PM blocks (PM). The "1" here
+# directly connects the parameter and cell.
+rate_design["PpPM", "PMR"] <- 1
+
+# We assume the same false alarm rate (fa) for P nonwords and words in PM blocks
+# as PM false alarms are rare
+rate_design["PnPM", "fa"] <- 1
+rate_design["PwPM", "fa"] <- 1
+
+# Hence
+rate_design[c("PpPM","PnPM","PwPM"),]
+
+# The inhibition effect is calculated as the difference between ongoing-task
+# accumulation rates in PM trials compared to non-PM trials.
+#
+# - Ongoing task rate [PM trial] = Ongoing task rate [non-PM trial] - Inhibition
+#
+# We subtract inhibition from ongoing-task accumulation on PM trials:
+
+rate_design["WpPM", "inh"] <- -1
+rate_design["NpPM", "inh"] <- -1
+
+# Ongoing task accumulation rates are decomposed into:
+#
+# - Urgency (matching + mismatching)
+# - Quality (matching - mismatching)
+#
+# So:
+#
+# - Matching rate = (0.5 x Urgency) + (0.5 x Quality)
+# - Mismatching rate = (0.5 x Urgency)  - (0.5 x Quality)
+
+# For control condition n stimuli
+rate_design["NnC", "qualnC"]  <- 0.5
+rate_design["WnC", "qualnC"]  <- -0.5
+rate_design["NnC", "urgnC"]  <- 0.5
+rate_design["WnC", "urgnC"]  <- 0.5
+
+# For control condition w stimuli
+rate_design["NwC", "qualwC"]  <- -0.5
+rate_design["WwC", "qualwC"]  <- 0.5
+rate_design["NwC", "urgwC"]  <- 0.5
+rate_design["WwC", "urgwC"]  <- 0.5
+
+# For PM condition n stimuli
+rate_design["NnPM", "qualnPM"]  <- 0.5
+rate_design["WnPM", "qualnPM"]  <- -0.5
+rate_design["NnPM", "urgnPM"]  <- 0.5
+rate_design["WnPM", "urgnPM"]  <- 0.5
+
+# For PM condition w stimuli
+rate_design["NwPM", "qualwPM"]  <- -0.5
+rate_design["WwPM", "qualwPM"]  <- 0.5
+rate_design["NwPM", "urgwPM"]  <- 0.5
+rate_design["WwPM", "urgwPM"]  <- 0.5
+
+# For PM condition p stimuli
+rate_design["NpPM", "qualwPM"]  <- -0.5
+rate_design["WpPM", "qualwPM"]  <- 0.5
+rate_design["NpPM", "urgwPM"]  <- 0.5
+rate_design["WpPM", "urgwPM"]  <- 0.5
+
+# Looking at the matrix note that there is nothing for PwC, NpC, and PpC
+# as there is no PM accumulator in the control condition.
+for(i in rownames(rate_design)){
+  print(read_rows(rate_design, i))
+}
+
+#### Custom factors and functions ----
+
+# Further custom factor columns not contained in the original data can be
+# useful for linear modelling.
+
+# They are added to the augmented data frame using the functions argument.
+
+# Here, we will create a custom factor SlR representing the cells of the
+# augmented design (i.e., the rows of the contrast matrix we just created).
+
+# It is important the factor levels are in the same order as the rows of the
+# contrast matrix.
+
+SlR=function(d) factor(paste0(d$lR, d$S, d$cond),levels=rownames(rate_design))
+
+# We will associate the contrast matrix we just created with this factor in
+# order to specify the mean accumulation rate parameters, "v".
+
+# In the PM design, the number of accumulators varies based on conditions. The
+# number of accumulators is given by passing to designs functions argument a
+# special custom function named RACE that output the number accumulators required
+# in a condition.
+
+# !UPCOMING! RACE will be deprecated and replaced by more generic functionality
+RACE=function(d)factor(ifelse(d$cond=="C",2,3))
+
+# As usual we require a matchfun. In this example it is used to allow sv to vary
+# based on whether the accumulator matches the correct response or not.
+
+match_fun <- function(d) as.character(d$S) == tolower(as.character(d$lR))
+
+#### Constants ----
+
+# Sometimes R's linear modeling language is rebellious and will not do what we tell
+# it too. In this case we do not want a rate intercept parameter as the rate
+# contrasts already fully define the v parameters. This should be able to be
+# achieved with the ~0+ syntax, but that will not work. Hence we set the
+# intercept to a constant of zero so it has no effect.
+
+# We need to set a further constant with respect to thresholds because of the
+# way the different number of accumulators in PM and control conditions
+# interacts with the way we specify proactive control. Proactive control is
+# embedded in the specification of thresholds:B ~ cond*lR.
+
+# This linear-model syntax use R's' default treatment coding (i.e., what we
+# get if we dont explicitly set a contrast matrix) which we will estimate a
+# threshold intercept, main effects of PM condition and latent response and the
+# interaction between them. Overall proactive control over the ongoing task would
+# be reflected by a main effect of condition. In this study, PM targets were
+# always words. Hence, targeted proactive control would be represented by an
+# interaction between lR and cond, with higher thresholds specifically for the
+# word accumulator (the strongest competitor with the PM accumulator) in PM blocks.
+#
+# However, there is no lR=P in the PM condition (no third accumulator). So, we it would
+# redundant to have both lRP and condPMxlRP included in model estimation. Hence we
+# set condPM x lRP to a constant of zero to avoid this issue.
+
+#### Overall design ----
+
+# Overall we specify a PM model with 19 parameters:
+#   - 11 parameters determining the mean accumulation rates
+#   - 5 parameters determining threshold
+#   - 1 Start-point noise parameter
+#   - 1 Non-decision time parameter
+#   - 1 fixed sv parameter (sv incorrect responses), and one determining sv
+#       for the correct accumulator
+
+designPM <- design(model=LBA, data=dats,
+  functions=list(SlR=SlR,RACE=RACE),
+  contrasts = list(SlR=rate_design),
+  matchfun=match_fun,
+  formula=list(v~SlR,B ~ cond*lR,A ~ 1,t0 ~ 1,sv ~ lM),
+  constants=c(sv=log(1),v=log(1),"B_condPM:lRP" = log(1)),
+  pre_transform = list(func = c(v_SlRinh = "exp"))
+)
+
+# Note that in order to maintain interpritability we need to make sure the
+# inhibition parameter is estimated as positive. We enforce this in the design
+# using the pre_transform argument which applied the specified transformation to
+# to sampled parameters before mapping before mapping. In this case
+# exponentiation is used to maintain positivity.
+
+# It is useful to verify the mappings in such a complicated model!
+mapped_pars(designPM)
+
+
+#### Simulate data ----
+
+# Simulation requires choosing a set of model parameter values for each simulated
+# participant. Here, parameter values were chosen by fitting the model to real
+# data from Strickland et al. (2018), Experiment 1. Specifically, we fit control
+# and non-focal PM conditions, excluding focal, to get estimates of PMDC
+# parameters.  From this we extracted population-mean parameter estimates, and a
+# covariance matrix indexing parameter variance across participants and
+# relationships between parameters. We use these estimates here to simulate for
+# illustrative purposes.
+print(load("data/sim_values.RData"))
+round(p_vector_sim,2)
+View(round(hierarchical_covs,2))
+
+# We simulate a multi-participant data set of the same size as Strickland et al.
+# (2018), first using these values with the make_random_effects function to
+# create random effects, simulating parameters for each subject. The result is a
+# 35 (subject) x 19 (row) matrix.
+
+res_recovery <- make_random_effects(
+    design= designPM,
+    group_means = p_vector_sim,
+    covariances = hierarchical_covs)
+
+head(round(res_recovery,2))
+
+# An issue here is that the non-decision time can be unreasonably low.
+round(sort(exp(res_recovery[,"t0"])),3)
+
+# We might have addressed this using the transform argument when fitting, but
+# here we just shrink these estimates to a bound of 0.05 seconds
+res_recovery[,"t0"] <- pmax(res_recovery[,"t0"], log(0.05))
+
+# This will create simulated choice-RT data using the specified parameters (in
+# this case an array of individual-subject parameters), design, and here the data
+# argument used to determine data structure, trial numbers etc.
+simmed_group <- make_data(parameters= res_recovery, data=dats, design = designPM)
+
+#### Priors ----
+
+# To specify priors for population means, EMC2 requires values central tendency
+# and a standard deviations, representing normally distributed uncertainty. If no
+# prior is provided a standard normal distribution is used. A multivariate normal
+# distribution is assumed across participants, with sensible default priors for
+# correlations and variances with a limited ability for users to change these
+# settings.
+
+# Priors are plotted below. Also, mapped population-mean values are printed to
+# ensure correct mappings via the mapped_pars function.
+
+#A function to get a vector with the right parameter names for the design
+p_vector <- sampled_pars(designPM)
+
+# A, t0, sv match. Reasonable values
+p_vector[c("A","t0","sv_lMTRUE")] <- c(log(0.2),log(.2),log(1))
+# All B values fixed at log (1). This implies a prior on B intercept of 1,
+# and a prior on all the B effects of 0
+p_vector[grepl("B", names(p_vector))] <- log(1)
+# Inhibition prior on a low value.
+p_vector[grepl("inh", names(p_vector))] <- log(0.1)
+# PM accumulation rate
+p_vector["v_SlRPMR"] <- 2
+# After mapping these imply a prior of 2 for match rates and 0 for mismatch
+# (see call to mapped_pars below)
+p_vector[grepl("qual", names(p_vector))] <- 2
+p_vector[grepl("urg", names(p_vector))] <- 2
+# False alarms are improbable
+p_vector["v_SlRfa"] <- 0
+
+# Setting up a vector for uncertainty expressed as SDs.
+
+# Number of mean accumulation rates
+n_vs <- length(p_vector[grepl("^v", names(p_vector))])
+#Number of thresholds
+n_Bs <- length(p_vector[grepl("B", names(p_vector))])
+psd=c(
+  #rates
+  rep(2,n_vs),
+  #thresholds,
+  rep(1,(n_Bs)),
+  #A, t0, sv
+  1, 1, 1
+)
+
+# This function creates the mu prior using the design, pop means and uncertainty
+# in pop means
+priorPM  <- prior(designPM,mu_mean=p_vector, mu_sd=psd)
+
+# Prior on the natural scale
+plot(priorPM,layout=c(2,6))
+
+
+#### Fitting ----
+emc <- make_emc(simmed_group, designPM, prior=priorPM)
+save(emc,file="samples/complicatedLBA.RData")
+
+# Run by run_complicatedLBA.R.
+load("samples/complicatedLBA.RData")
+
+# Although Rhat is OK, it looks like a few parameters are still moving
+check(emc,layout=c(1,3))
+
+# Looks much better if we remove the first 500
+emc <- subset(emc,filter=500)
+check(emc,layout=c(1,3))
+
+# # We could save this off and run again to make up the samples to 1000 again,
+# # e.g.,
+# save(emc,file="samples/complicatedLBA.RData")
+# fit(emc, cores_per_chain = 3, fileName="complicatedLBA.RData",iter=500)
+
+# When autocorrelation is height it can be worth thinning the samples so the
+# saved objects are smaller.
+emc <- subset(emc,thin=2)
+check(emc,layout=c(1,3))
+
+# The OSF accompanying the tutorial paper has samples and scripts look at other
+# complicated models, model comparison etc.
+
+
+#### EXERCISES ----
+
+# 1) Examine the simulated data and use manifest statistics to understand its
+#    structure.
+# 2) How would you change the tutorial workflow to enforce a reasonable lower
+#    bound on the simulated t0 values (say 0.2 seconds)
+# 3) The LBA has historically been used to specify PMDC theory, but other
+#    race models could also be used such as the RDM, give that at try.
+# 4) How could you use this sort of workflow for design planning (i.e., figuring
+#    out how many participants and trial per participant you need to detect
+#    particular effects).
+
