@@ -20,7 +20,7 @@ library(EMC2)
 # DDM
 ?DDM
 
-# The most general version is called the Diffusion Decison Model or Drift
+# The most general version is called the Diffusion Decision Model or Drift
 # Diffusion Model, but lets first look at the wiener diffusion model, WDM.
 
 ### WDM ----
@@ -61,7 +61,10 @@ plot_design(designWDM,p_vector=parsWDM)
 datWDM <- make_data(parsWDM,designWDM,n_trials=1e4)
 
 # Here we see the data format used by EMC2. Trials is added to simulated data
-# but need not be in real data. Also, the LT/UT/LC/UC columns indicate
+# but need not be in real data.
+
+# UPCOMING
+# Also, the LT/UT/LC/UC columns indicate
 # whether an truncation (T) or Censoring (C) has been applied to the upper (U)
 # or lower (L) end of the rt distribution. Again these need not be added to
 # real data (when absent the defaults here, which indicate no censoring or
@@ -136,7 +139,7 @@ parsDDM
 mapped_pars(designDDM,parsDDM)
 plot_design(designDDM,p_vector=parsDDM)
 
-
+# Simulate and look at data
 datDDM <- make_data(parsDDM,designDDM,n_trials=1e4)
 plot_density(datDDM,factors="S",functions=list(C=crctfun),defective_factor="C")
 plot_cdf(datDDM,factors="S",functions=list(C=crctfun),defective_factor="C")
@@ -149,6 +152,7 @@ stats(datDDM)
 #           separately.We provide an initial example to show how to use plot
 #           overlays.
 
+# e.g., look at SZ alone
 parsDDM1 <- parsDDM; parsDDM1[c("sv","st0")] <- c(log(0),st0=log(0))
 datDDM1 <- make_data(parsDDM1,designDDM,n_trials=1e4)
 stats(datDDM1)
@@ -163,7 +167,7 @@ plot_cdf(list("all"=datDDM,"SZ"=datDDM1),col=c("black","red"),
 ####  Race models ----
 
 # For race models it is useful to pass a "matchfun", a function to indicate
-# which accumulator matches the stimulus.Note that EMC2 automatically creates
+# which accumulator matches the stimulus. Note that EMC2 automatically creates
 # an accumulator factor, lR, with levels equal to Rlevels.
 SeqR <- function(d)d$S==d$lR
 
@@ -191,7 +195,7 @@ parsRDM <- sampled_pars(designRDM)
 parsRDM[] <- c(log(1),log(2),log(2),log(1),log(.3))
 parsRDM
 
-# Looking at the parameters we can see match twice mismatch and both
+# Looking at the parameters we can see match rate is twice mismatch, and both
 # accumulators have the same threshold.
 mapped_pars(designRDM,parsRDM)
 
@@ -227,17 +231,19 @@ parsLBA <- sampled_pars(designLBA)
 parsLBA[] <- c(log(1),log(4),log(.75),log(1),log(.3),log(.25))
 parsLBA
 
-# plot_design(designLBA,p_vector=parsLBA,plot_factor="lM")
+# Here is the architecture and parameterization graphically, showing the model's
+# ballistic nature.
+plot_design(designLBA,p_vector=parsLBA,plot_factor="lM")
 
 # We see that B is the gap between the top of the start-point noise (A) and the
 # threshold (b).
 mapped_pars(designLBA,parsLBA)
 
-# The graphical representation shows the model's ballistic nature.
+# The graphical representation can also super-impose accumulators
 plot_design(designLBA, factors = list(v = "lM"),p_vector = parsLBA)
 
 
-# Simulate some data and look at ti
+# Simulate some data and look at it
 datLBA <- make_data(parsLBA,designLBA,n_trials=1e4)
 plot_density(datLBA,factors="S",functions=list(C=crctfun),defective_factor="C")
 plot_cdf(datLBA,factors="S",functions=list(C=crctfun),defective_factor="C")
@@ -250,12 +256,12 @@ stats(datLBA)
 ### LNR ----
 ?LNR
 
-# In the LNR threhold and rates collapse, so we will put both lM and lR
-# effects on the lognormal mean (m).
+# In the LNR threshold and rates collapse, so we will put both lM and lR
+# effects on the Lognormal mean (m).
 designLNR <- design(data=datWDM,model=LNR,matchfun=SeqR,
   formula=list(m~lM+lR,s~1,t0~1))
 
-# The mean is unbounded
+# The mean is unbounded, s and t0 are log-scaled
 mapped_pars(designLNR)
 
 # Set parameters so match is greater than mismatch with no response bias
@@ -263,10 +269,6 @@ parsLNR <- sampled_pars(designLNR)
 parsLNR[] <- c(log(1),log(1/3),log(1),log(1),log(.3))
 parsLNR
 
-# plot_design(designLNR,p_vector=parsLNR,plot_factor="lM")
-
-# We see that B is the gap between the top of the start-point noise (A) and the
-# threshold (b).
 mapped_pars(designLNR,parsLNR)
 
 # Simulate some data and look at it
