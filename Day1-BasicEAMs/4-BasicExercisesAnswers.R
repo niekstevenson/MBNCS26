@@ -24,7 +24,7 @@ psd1 = c(.7,.5,2.5,2.5,1,1,.4,.4,0.7,.75)
 priorDDM1 <- prior(designDDM1,pmean=pmean1,psd=psd1,type="single")
 sDDM1 <-  make_emc(dat,designDDM1,type="single",rt_resolution=.05,prior=priorDDM1)
 sDDM1 <- fit(sDDM1)
-save(sDDM1,file="samples/sDDM1.RData")
+# save(sDDM1,file="samples/sDDM1.RData")
 
 # 1b) The full DDM wins
 load("samples/sDDM.RData")

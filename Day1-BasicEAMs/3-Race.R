@@ -18,7 +18,7 @@ dat <- dat[dat$rt>.2,]
 # First we fit the RDM. All RDM parameters are positive and so estimated on a
 # log scale. Negative rates, although conceptually possible, mean that sometimes
 # and accumulator may never reach its threshold, and it also invalidates the
-# analytic solution for the likelihood, requiring a much slower calculation.
+# easy analytic solution for the likelihood we use.
 
 # As in the DDM we set moment-to-moment variability to one and we also use the
 # simple form with no start-point variability (A) by fixing it to zero (although
@@ -45,7 +45,13 @@ levels(dat$R)
 
 # Thresholds (B) are affected by E and we also allow for response bias that is
 # the same for speed and accuracy by an additive combination with lR.
-designRDM <- design(data=dat,model=RDM,LT=.2,
+
+# !UPCOMING!
+# designRDM <- design(data=dat,model=RDM,LT=.2,
+#                   formula=list(B~E+lR),
+#                   matchfun=function(d)d$S==d$lR)
+
+designRDM <- design(data=dat,model=RDM,
                   formula=list(B~E+lR),
                   matchfun=function(d)d$S==d$lR)
 
@@ -70,7 +76,7 @@ mapped_pars(designRDM)
 
 ## Drift rate parameterization ---------------------------------------------
 
-# A new argument to design used with race model, "matchfun", is supplied with
+# A new argument to design used with race models, "matchfun", is supplied with
 # a function that indicates which accumulator (indexed by the lR factor)
 # corresponds to the a correct response for different stimuli.
 
@@ -86,7 +92,7 @@ matchfun=function(d)d$S==d$lR
 # (corresponding to incorrect responses).
 
 # Race models have one accumulator for each response, each with its own
-# parameters. For accumulation rates it is useful to recode these parameters in
+# parameters. For accumulation rates it is useful to re-code these parameters in
 # terms of the average rate across accumulators (intercept), and d = difference
 # between accumulators.
 
@@ -102,14 +108,22 @@ ADmat
 # when responding is above chance and equals the match - mismatch rate.
 
 # We will call the d parameter rate "quality" as it indicates how well a
-# participant can discriminate between correct and incorrect responses. We will
-# call the intercept either "urgency" or more generically rate "quantity" as
-# it quantifies the overall level of evidence driving a response
+# participant can discriminate between correct and incorrect responses.
 
-designRDM <- design(data=dat,model=RDM,LT=.2,
+# We will call the intercept either "urgency" or more generically rate
+# "quantity" as it quantifies the overall level of evidence driving a response.
+
+# # !UPCOMING!
+# designRDM <- design(data=dat,model=RDM,LT=.2,
+#                   formula=list(v~lM),
+#                   matchfun=function(d)d$S==d$lR,
+#                   contrasts=list(lM=ADmat))
+
+designRDM <- design(data=dat,model=RDM,
                   formula=list(v~lM),
                   matchfun=function(d)d$S==d$lR,
                   contrasts=list(lM=ADmat))
+
 mapped_pars(designRDM)
 
 # Here, the v parameter is the average rate (over match and mismatching
@@ -129,11 +143,13 @@ head(EMC2:::design_model(dat,designRDM))
 ## Congruency --------------------------------------------------------------
 
 # Next we'll take into account how congruency affects the drift rate.
+
 # We assume rates vary with CI, both in terms of the difference between
 # match and mismatch (analogous to the DDM v parameter) and in terms of urgency
-# (which does not have an analogue in the standard DDM). Here we use the "*"
-# operator of the linear modeling language, which is shorthand where
-# CI*lM = CI + lM + CI:lM.
+# (which does not have an analogue in the standard DDM).
+
+# Here we use the "*" operator of the linear modeling language, which is
+# shorthand where CI*lM = CI + lM + CI:lM.
 
 # v_CIincongruent is the incongruent condition effect on urgency/quantity (i.e.,
 # the difference from the congruent condition).
@@ -148,7 +164,13 @@ head(EMC2:::design_model(dat,designRDM))
 # You can see the last contrast is the product of the preceding two, which is
 # typical for interaction (":") parameters.
 
-designRDM <- design(data=dat,model=RDM,LT=.2,
+# # !UPCOMING!
+# designRDM <- design(data=dat,model=RDM,LT=.2,
+#                   formula=list(v~lM*CI),
+#                   matchfun=function(d)d$S==d$lR,
+#                   contrasts=list(lM=ADmat))
+
+designRDM <- design(data=dat,model=RDM,
                   formula=list(v~lM*CI),
                   matchfun=function(d)d$S==d$lR,
                   contrasts=list(lM=ADmat))
@@ -161,7 +183,14 @@ mapped_pars(designRDM)
 # Next we combine all the parameter choices we included above into one full
 # RDM model. Additionally we estimate one non-decision time (t0) across
 # conditions.
-designRDM <- design(data=dat,model=RDM,LT=.2,
+
+# # !UPCOMING!
+# designRDM <- design(data=dat,model=RDM,LT=.2,
+#                     formula=list(v~lM*CI, B ~ E + lR, t0 ~ 1),
+#                     matchfun=function(d)d$S==d$lR,
+#                     contrasts=list(lM=ADmat))
+
+designRDM <- design(data=dat,model=RDM,
                     formula=list(v~lM*CI, B ~ E + lR, t0 ~ 1),
                     matchfun=function(d)d$S==d$lR,
                     contrasts=list(lM=ADmat))
@@ -169,7 +198,7 @@ designRDM <- design(data=dat,model=RDM,LT=.2,
 ## Priors ----
 
 # Priors are based on our informal experience with this model to be
-# be reasonable but fairly vague.
+# be reasonable, but still fairly vague, largely just setting a broad scale.
 pmean <- c(B=log(2),B_Espeed=0,B_lRright=0,v=log(2),
   v_lMd=1,v_CIincongruent=-0.3,'v_lMd:CIincongruent'=-0.5,t0=log(.2))
 
@@ -250,7 +279,13 @@ pairs_posterior(sRDM)
 # By convention sv varies with lM, with the intercept (v) fixed for
 # identifiability. This typically results in sv for match being less than
 # mismatch.
-designLBA <- design(data=dat,model=LBA,LT=.2,
+
+# # !UPCOMING!
+# designLBA <- design(data=dat,model=LBA,LT=.2,
+#                     matchfun=function(d)d$S==d$lR,
+#   formula=list(B~E+lR,v~lM*CI,A~1,sv~lM,t0~1),
+#   constants=c(sv=0),contrasts=list(lM=ADmat))
+designLBA <- design(data=dat,model=LBA,
                     matchfun=function(d)d$S==d$lR,
   formula=list(B~E+lR,v~lM*CI,A~1,sv~lM,t0~1),
   constants=c(sv=0),contrasts=list(lM=ADmat))
@@ -326,7 +361,13 @@ pairs_posterior(sLBA)
 # will be negative when accuracy is above chance (as then the value for match
 # should be LESS than for mismatch). To make interpretation easier we flip the
 # sign of the ADmat (i.e., we use -ADmat) so that
-designLNR <- design(data=dat,model=LNR,LT=.2,
+
+# # !UPCOMING!
+# designLNR <- design(data=dat,model=LNR,LT=.2,
+#   matchfun=function(d)d$S==d$lR,
+#   contrasts=list(lM=-ADmat),
+#   formula=list(m~lM*(CI + E)+lR,s~lM,t0~1))
+designLNR <- design(data=dat,model=LNR,
   matchfun=function(d)d$S==d$lR,
   contrasts=list(lM=-ADmat),
   formula=list(m~lM*(CI + E)+lR,s~lM,t0~1))
@@ -401,8 +442,9 @@ credible(sLNR,c("m_Espeed","m_CIincongruent"))
 
 # In this case the difference is not credible. Note that it is not possible to
 # make the test in the same way with the hypothesis function, but the fun method
-# still works to test equality. This test provides positive (and almost strong)
-# evidence for no difference.
+# still works to test equality.
+
+# This test provides positive (and almost strong) evidence for no difference.
 1/hypothesis(sLNR,fun=\(x) diff(x[c("m_Espeed","m_CIincongruent")]))
 
 # As another example, for quality the conflict effect is credibly larger in
@@ -458,7 +500,6 @@ plot_cdf(dat,ppRDM, factors = c("E", "CI"), functions = list(correct = correct_f
 plot_cdf(dat,ppLNR, factors = c("E", "CI"), functions = list(correct = correct_fun),
          defective_factor = "correct",xlim=c(.45,1.1))
 
-# LNR fits accuracy best, then LBA and RDM last.
 
 # Now for the DDM/WDM
 plot_cdf(dat,ppWDM, factors = c("E", "CI"), functions = list(correct = correct_fun),
