@@ -1,0 +1,22 @@
+[project]
+name = "bayesflow-mbnc-tutorial"
+version = "0.1.0"
+description = "Shared uv environment for the BayesFlow tutorials."
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "arviz>=1.2",
+    "bayesflow>=2.0",
+    "hssm>=0.4",
+    "ipykernel",
+    "ipywidgets",
+    "jax",
+    "keras",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pymc>=6.2",
+    "scipy",
+    "seaborn",
+    "tqdm",
+]
