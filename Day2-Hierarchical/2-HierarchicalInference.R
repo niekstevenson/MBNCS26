@@ -16,7 +16,7 @@ pp_LBA <- predict(hLBA, n_cores = 9)
 pp_DDM <- predict(hDDM, n_cores = 9)
 
 acc_fun <- function(data) factor(data$S == data$R)
-plot_cdf(dat, post_predict = list(LBA = pp_LBA, DDM = pp_DDM),
+plot_density(dat, post_predict = list(LBA = pp_LBA, DDM = pp_DDM),
          functions = list(correct = acc_fun),
          factors = "E",
          defective_factor = "correct",
