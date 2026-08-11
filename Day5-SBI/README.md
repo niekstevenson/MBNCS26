@@ -10,7 +10,16 @@ This folder contains a tiny `pyproject.toml` for creating a Python environment w
 
 The dependency manager used here is [uv](https://docs.astral.sh/uv/). Think of uv as a fast tool that creates a clean Python environment, installs packages into it, and remembers the exact versions it chose.
 
-## 1. Install uv
+## 1. Install VS Code
+
+Download and install [Visual Studio Code](https://code.visualstudio.com/Download) for your operating system.
+
+After installing it, open VS Code and install these extensions from the Extensions view:
+
+- [Python](https://marketplace.visualstudio.com/items?itemName=ms-python.python)
+- [Jupyter](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter)
+
+## 2. Install uv
 
 Open a terminal.
 
@@ -36,7 +45,7 @@ uv --version
 
 If that prints a version number, you are good.
 
-## 2. Go to this tutorial folder
+## 3. Go to this tutorial folder
 
 From the root of this repository, move into this environment tutorial folder:
 
@@ -48,7 +57,7 @@ You should see a file called `pyproject.toml`. That file is the recipe `uv` read
 
 Important: you do not run the TOML file directly. You run `uv` commands in the same folder as the TOML file.
 
-## 3. Create the environment and install the packages
+## 4. Create the environment and install the packages
 
 Run:
 
@@ -71,7 +80,7 @@ uv python install 3.12
 uv sync --python 3.12
 ```
 
-## 4. Run Python inside the uv environment
+## 5. Run Python inside the uv environment
 
 Use `uv run` whenever you want to run Python with these packages available:
 
@@ -93,9 +102,7 @@ To leave the Python prompt:
 exit()
 ```
 
-## 5. Use notebooks in VS Code
-
-Install the VS Code Python and Jupyter extensions if you do not already have them.
+## 6. Use notebooks in VS Code
 
 Open this repository folder in VS Code. The workspace setting in `.vscode/settings.json` points VS Code at:
 
@@ -112,7 +119,7 @@ For a notebook:
 3. Choose `Python Environments`.
 4. Select the `.venv` under `Day5-SBI`.
 
-## 6. CPU vs GPU
+## 7. CPU vs GPU
 
 The default `pyproject.toml` is for CPU installs. This is the easiest setup and is the right starting point for most people.
 
@@ -122,7 +129,7 @@ If you want NVIDIA GPU support, check the platform-specific install notes first:
 
 GPU installs depend on your operating system, CUDA version, and driver version, so do not guess here.
 
-## 7. Common fixes
+## 8. Common fixes
 
 If `uv` is not found, close and reopen your terminal.
 
@@ -139,6 +146,6 @@ If a notebook asks to install a kernel, it usually means `ipykernel` is missing 
 
 If you get GPU-related JAX errors, switch back to the CPU setup first and confirm the basic install works.
 
-## 8. What the TOML file means
+## 9. What the TOML file means
 
 The important part of `pyproject.toml` is its `dependencies = [...]` list — read it there rather than here, so the two cannot drift apart. It names the packages `uv sync` installs into the local tutorial environment.
