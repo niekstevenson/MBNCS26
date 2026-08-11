@@ -1,0 +1,7 @@
+"0","pri <- prior("
+"0","  design = des,"
+"0","  group_design = group_des,"
+"0","  pmean = c(v = 1, v_lMd = 1, B = log(1), t0 = log(0.3), A = log(0.3)),"
+"0","  psd = c(t0 = 0.3, A = 0.2, B = .5, sv_lMd = 0.3, t0_groupASD = 0.3),"
+"0","  A = c(t0 = 0.1, A = 0.1)"
+"0",")"

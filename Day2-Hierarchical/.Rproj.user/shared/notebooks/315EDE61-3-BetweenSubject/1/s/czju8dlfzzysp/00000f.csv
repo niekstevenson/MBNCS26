@@ -1,0 +1,1 @@
+"0","emc <- fit(emc, fileName = ""samples/LBA.RData"", cores_per_chain = 3)"

@@ -1,0 +1,8 @@
+"0","acc_fun <- function(data) factor(data$S == data$R)"
+"0",""
+"0","plot_density("
+"0","  data,"
+"0","  factors = c(""cond"", ""group""),"
+"0","  functions = list(correct = acc_fun),"
+"0","  defective_factor = ""correct"""
+"0",")"

@@ -1,0 +1,1 @@
+"0","emc <- make_emc(data, design = des, prior_list = pri, group_design = group_des)"

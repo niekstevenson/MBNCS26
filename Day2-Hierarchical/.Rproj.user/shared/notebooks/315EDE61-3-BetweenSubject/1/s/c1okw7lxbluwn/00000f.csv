@@ -1,0 +1,6 @@
+"0","mapped_ci <- credint("
+"0","  emc,"
+"0","  map = list(v = c(""group"", ""cond"", ""lM""), B = ""group"", t0 = ""group"", sv = ""lM"")"
+"0",")[[1]]"
+"0",""
+"0","knitr::kable(round(mapped_ci, 3))"

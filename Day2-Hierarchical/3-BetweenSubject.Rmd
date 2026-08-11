@@ -1,0 +1,452 @@
+---
+title: "Fitting a Hierarchical Model with Between-Subject effects in EMC2"
+description: "Data preparation, model specification, estimation, and interpretation in EMC2"
+output: rmarkdown::html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+library(EMC2)
+knitr::opts_chunk$set(comment = "#>", message = FALSE, warning = FALSE)
+```
+
+## Introduction
+
+This vignette shows how to fit a hierarchical Linear Ballistic
+Accumulator (LBA) model in `EMC2` to the direction integration task
+presented in Manning et al. (2022).
+
+-   an `EMC2` design object,
+-   a hierarchical group-level model,
+-   a prior specification,
+-   a fitted `emc` object,
+-   and finally a set of posterior summaries and posterior predictive
+    checks.
+
+The analysis here uses the `deviation` task and compares the `CTRL` and
+`ASD` groups across `hard` and `easy` trials.
+
+## Load and prepare the data
+
+The first job is to put the dataset into the format that `EMC2` expects:
+
+-   `subjects`: participant identifier,
+-   `R`: the observed response,
+-   `rt`: response time in seconds.
+
+In the raw Manning2022 file these variables have different names, so we
+recode them explicitly. We further recode factors in the data like `S`
+(stimulus) and `group` to have interpretable levels.
+
+```{r data-prep}
+load("data/Manning2022.RData")
+
+data <- subset(
+  data,
+  task == "deviation" & !is.na(RT),
+  select = c(cond, motiondir, keypress, RT, subjects, group)
+)
+
+colnames(data) <- c("cond", "S", "R", "rt", "subjects", "group")
+
+data$R <- ifelse(data$R == "2", "right", "left")
+data$group <- ifelse(data$group == 0, "CTRL", "ASD")
+
+data$subjects <- factor(data$subjects)
+data$cond <- factor(data$cond, levels = c("hard", "easy"))
+data$R <- factor(data$R)
+data$group <- factor(data$group, levels = c("CTRL", "ASD"))
+data$S <- factor(data$S)
+```
+
+Before fitting anything, it is worth checking that the dataset still
+looks sensible after filtering and recoding.
+
+```{r data-overview}
+c(
+  n_trials = nrow(data),
+  n_subjects = nlevels(data$subjects)
+)
+
+with(data, table(group, cond))
+with(data, table(group, S))
+```
+
+The trial counts are well balanced across groups and conditions.
+
+## Inspect the observed data
+
+It is good practice to look at the data to see if there is any
+irregularities. `plot_density()` is useful here because it plots
+defective densities: the area under each density is proportional to
+the probability of that response class, so accuracy and response-time
+shape are visualized together.
+
+I define a small helper that classifies each trial as correct or
+incorrect, then plot the distributions separately for condition and
+group.
+
+```{r observed-densities, fig.height=6, fig.alt="Observed defective densities by condition and group"}
+acc_fun <- function(data) factor(data$S == data$R)
+
+plot_density(
+  data,
+  factors = c("cond", "group"),
+  functions = list(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+Here we use a response time cutoff between 250 ms and 2 seconds.
+
+```{r trim-rt}
+range(data$rt)
+
+data <- subset(data, rt < 2 & rt > 0.25)
+```
+
+This is not a universal rule. It is just the trimming choice for this
+analysis. In your own work, outlier handling should be justified from
+the task and measurement setup rather than copied blindly.
+
+## LBA overview
+
+The LBA is a race model with one accumulator per response option. In
+this task there are two response options, so each trial is modeled as a
+race between a left and a right accumulator.
+
+The parameters used below are:
+
+-   `v`: mean drift rate,
+-   `B`: threshold distance,
+-   `A`: start-point range,
+-   `t0`: non-decision time,
+-   `sv`: between-trial drift-rate variability.
+
+In `EMC2`, race models create an `lR` factor, which has the same levels
+as the response factor `R`. These correspond to the accumulators present
+on each trial (a left and a right accumulator). This allows us to vary
+the design as a function of the accumulator. For example we can set
+`B ~ lR` to allow for different levels of evidence required for the left
+or right accumulator, which is a way to model response bias. We can
+further use a `matchfun` to code which accumulator matches the stimulus
+and should therefore be the favored response.
+
+## Specify the subject-level design
+
+For binary matching effects it is often useful to use an
+average-difference contrast. To that end we set up the following
+contrast matrix. Its effect will be illustrated below
+
+```{r contrast-matrix}
+ADmat <- cbind(d = c(-1 / 2, 1 / 2))
+ADmat
+```
+
+Now we specify the subject-level model.
+
+```{r subject-design}
+des <- design(
+  formula = list(v ~ lM * cond, B ~ lR, t0 ~ 1, A ~ 1, sv ~ lM),
+  data = data,
+  matchfun = function(data) data$S == data$lR,
+  model = LBA,
+  contrasts = list(lM = ADmat),
+  constants = c(sv = log(1))
+)
+
+sampled_pars(des)
+```
+
+There are several important modeling choices here.
+
+-   `v ~ lM * cond` says that drift rate depends on whether an
+    accumulator matches the correct response, and that this matching
+    effect may change between hard and easy trials.
+-   `B ~ lR` allows different thresholds for the left and right
+    accumulators, which is the LBA analogue of response bias.
+-   `t0 ~ 1` and `A ~ 1` estimate non-decision time and start-point
+    range as consistent across cells of the design
+-   `sv ~ lM` allows a match-related difference in drift variability,
+    but the intercept of `sv` is fixed with `constants = c(sv = log(1))`
+    to satisfy the scaling constraint. The constant is set on the
+    sampled scale (log).
+
+The output of `sampled_pars(des)` is worth reading carefully because it
+tells you exactly which coefficients the model will estimate:
+
+-   `v` is the overall drift-rate intercept.
+-   `v_lMd` is the matching-minus-mismatching drift-rate contrast.
+-   `v_condeasy` is the easy-minus-hard drift-rate shift.
+-   `v_lMd:condeasy` is the interaction: does the matching advantage
+    change on easy trials?
+-   `B_lRright` is the extra threshold for the right accumulator
+    relative to the left accumulator.
+
+The printed design matrices also show how these coefficients are
+combined on each trial type. For example, the `v` design implies:
+
+$$
+v_{\mathrm{match,hard}} = v + 0.5\,v_{lMd}
+$$
+
+$$
+v_{\mathrm{mismatch,hard}} = v - 0.5\,v_{lMd}
+$$
+
+$$
+v_{\mathrm{match,easy}} = v + v_{condeasy} + 0.5\,v_{lMd} + 0.5\,v_{lMd:condeasy}
+$$
+
+$$
+v_{\mathrm{mismatch,easy}} = v + v_{condeasy} - 0.5\,v_{lMd} - 0.5\,v_{lMd:condeasy}
+$$
+
+That is exactly the kind of bookkeeping `design()` is supposed to handle
+for you.
+
+## Add the hierarchical group model
+
+The subject-level design tells `EMC2` which parameters exist for each
+participant. `group_design()` then tells `EMC2` which of those
+subject-level parameters should vary systematically with
+participant-level predictors.
+
+Here the only participant-level predictor is diagnostic group.
+
+```{r group-design}
+group_des <- group_design(
+  list(
+    v ~ group,
+    v_lMd ~ group,
+    v_condeasy ~ group,
+    `v_lMd:condeasy` ~ group,
+    B ~ group,
+    t0 ~ group
+  ),
+  subject_design = des,
+  data = data
+)
+
+sampled_pars(group_des)
+```
+
+`group_design()` does not remove the hierarchical intercept. It adds
+predictors to the group-level means of the selected subject-level
+parameters.
+
+That means:
+
+-   `v` is still the mean subject-level drift intercept for the
+    reference group,
+-   `v_groupASD` is the ASD-minus-CTRL shift in that drift intercept,
+-   `t0_groupASD` is the ASD-minus-CTRL shift in non-decision time,
+-   and so on.
+
+Parameters that are **not** named in `group_design()` still get a
+hierarchical intercept and variance, but they do not get an explicit
+group regression term. In this model, for example, `A`, `B_lRright`, and
+`sv_lMd` are not modeled as a function of group.
+
+## Specify priors
+
+Calling `prior()` after defining `des` and `group_des` creates priors
+for the hierarchical model. You only need to override the entries where
+the defaults are too vague or implausible for the task.
+
+```{r priors}
+pri <- prior(
+  design = des,
+  group_design = group_des,
+  pmean = c(v = 1, v_lMd = 1, B = log(1), t0 = log(0.3), A = log(0.3)),
+  psd = c(t0 = 0.3, A = 0.2, B = .5, sv_lMd = 0.3, t0_groupASD = 0.3),
+  A = c(t0 = 0.1, A = 0.1)
+)
+```
+
+There are three practical points to keep in mind here.
+
+-   `pmean` and `psd` are overriding the default priors for selected
+    coefficients. Everything not named here falls back to the package
+    defaults.
+-   `B`, `t0`, `A`, and `sv` are estimated on the log scale in the LBA
+    implementation, so prior values for those parameters should be
+    specified on the transformed scale.
+-   The `A` argument in `prior()` is a prior hyperparameter for the
+    hierarchical variance prior. It is not the same thing as fixing the
+    model parameter `A`.
+
+If you want to inspect the implied priors before fitting, a useful quick
+check is:
+
+```{r prior-check, eval=FALSE}
+plot(pri, N = 1000, layout = c(2,2))
+```
+
+## Build the `emc` object
+
+`make_emc()` combines the data, subject-level design, hierarchical group
+design, and priors into the object that `fit()` needs.
+
+```{r make-emc}
+emc <- make_emc(data, design = des, prior_list = pri, group_design = group_des)
+```
+
+At this point the model is specified, but not yet estimated.
+
+## Fit the model
+
+The actual MCMC estimation step is:
+
+```{r fit-model, eval=FALSE}
+emc <- fit(emc, fileName = "samples/LBA.RData", cores_per_chain = 3)
+```
+
+This can take a while, so we load the saved fit.
+
+```{r load-fit}
+load("samples/LBA_manning.RData")
+```
+
+If you want to re-estimate the model yourself, simply evaluate the
+`fit()` chunk and overwrite the saved file.
+
+## Posterior predictive checking
+
+Once the model is fit, the first question should be whether it
+reproduces the main patterns in the observed data. `predict()` simulates
+new datasets from the posterior, and `plot_density()` can overlay those
+posterior predictive distributions on the real data.
+
+```{r posterior-predictive, fig.height=6, fig.alt="Posterior predictive defective densities by condition and group"}
+pp <- predict(emc, n_post = 50, n_cores = 9)
+
+plot_density(
+  emc,
+  pp,
+  factors = c("cond", "group"),
+  functions = list(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+The posterior predictive distributions track the observed densities
+well. The main patterns in accuracy and response-time shape are
+reproduced in both groups and both conditions. The remaining mismatch is
+small and is mainly visible in the far right tail, which is not unusual
+in a model of this complexity.
+
+## Summarize the posterior
+
+For hierarchical regressions, `credint(emc, selection = "beta")` is a
+good place to start because it returns credible intervals for the
+group-level regression coefficients (including intercepts).
+
+```{r posterior-intervals}
+beta_ci <- credint(emc, selection = "beta")[[1]]
+
+key_beta_ci <- beta_ci[
+  c(
+    "v", "v_groupASD",
+    "v_lMd", "v_lMd_groupASD",
+    "v_condeasy", "v_condeasy_groupASD",
+    "v_lMd:condeasy", "v_lMd:condeasy_groupASD",
+    "B", "B_groupASD",
+    "t0", "t0_groupASD"
+  ),
+  ,
+  drop = FALSE
+]
+
+knitr::kable(round(key_beta_ci, 3))
+```
+
+These intervals are easiest to read if you separate the *baseline terms*
+from the *group-difference terms*.
+
+-   Terms without `_groupASD` are the CTRL-group coefficients.
+-   Terms with `_groupASD` tell you how much the ASD group shifts away
+    from that CTRL baseline.
+
+For this fitted model, the main instructional takeaways are:
+
+-   `v_lMd` is strongly positive, so matching accumulators have much
+    higher drift rates than mismatching accumulators. That is exactly
+    what we would expect in a discrimination task.
+-   `v_lMd:condeasy` is also positive, which means the match advantage
+    is larger on easy trials.
+-   `v_groupASD` is negative in this fit, suggesting lower baseline
+    drift in the ASD group.
+-   `B_groupASD` and `t0_groupASD` have intervals overlapping zero, so
+    this model does not strongly separate the groups on threshold or
+    non-decision time.
+
+For `B` and `t0`, remember that the coefficients are on the transformed
+scale used by the LBA implementation. In practice, the first pass is
+usually about direction and uncertainty, not raw coefficient magnitude.
+
+## Test specific effects with Bayes factors
+
+Credible intervals are useful, but sometimes we want a direct test of a
+point-null hypothesis such as whether a coefficient is equal to zero.
+`hypothesis()` computes a Savage-Dickey Bayes factor for exactly that
+question.
+
+```{r bayes-factors}
+targets <- c(
+  "v_groupASD", "v_lMd_groupASD",
+  "v_condeasy", "v_condeasy_groupASD",
+  "v_lMd:condeasy", "v_lMd:condeasy_groupASD",
+  "B_groupASD", "t0_groupASD"
+)
+
+bf_table <- data.frame(
+  parameter = targets,
+  BF10 = round(
+    sapply(
+      targets,
+      function(tar) hypothesis(
+        emc,
+        selection = "beta",
+        parameter = tar,
+        do_plot = FALSE
+      )
+    ),
+    3
+  ),
+  row.names = NULL
+)
+
+knitr::kable(bf_table)
+```
+
+This gives a summary of which effects have substantial evidence
+against zero. In this model, the strongest evidence is for the
+`v_lMd:condeasy` interaction, while the evidence for group differences
+in `B` and `t0` is weak.
+
+## Map coefficients back to interpretable cell summaries
+
+Raw regression coefficients are useful for estimation, but they are not
+always the easiest quantities to interpret. Often it is clearer to map
+the posterior back to the condition means implied by the model.
+
+The `map` argument in `credint()` does that bookkeeping for us. Here we
+request:
+
+-   drift rates for each combination of `group`, `cond`, and `lM`,
+-   thresholds for each `group`,
+-   non-decision times for each `group`,
+-   and `sv` for matching and mismatching accumulators.
+
+```{r mapped-posteriors}
+mapped_ci <- credint(
+  emc,
+  map = list(v = c("group", "cond", "lM"), B = "group", t0 = "group", sv = "lM")
+)[[1]]
+
+knitr::kable(round(mapped_ci, 3))
+```

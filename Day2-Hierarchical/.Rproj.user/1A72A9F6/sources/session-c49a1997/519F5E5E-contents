@@ -1,0 +1,174 @@
+rm(list = ls())
+library(EMC2)
+dat <- forstmann
+hDDM <- get(load("samples/hDDM.RData"))
+hLBA <- get(load("samples/hLBA.RData"))
+
+# First we do model comparison between the DDM and the LBA
+compare(list(LBA = hLBA, DDM = hDDM))
+
+#### Model Fit ----
+
+# We generate posterior predictions for the models to see how well it
+# fits the data:
+
+pp_LBA <- predict(hLBA, n_cores = 9, n_post=100)
+pp_DDM <- predict(hDDM, n_cores = 9, n_post=100)
+
+acc_fun <- function(data) factor(data$S == data$R)
+plot_cdf(dat, post_predict = list(LBA = pp_LBA, DDM = pp_DDM),
+         functions = list(correct = acc_fun),
+         factors = "E",
+         defective_factor = "correct",
+         layout = c(1,3))
+
+
+# As with single-subject, we can also compare arbitrary descriptives
+# on the real data to the predictives of both models.
+# For example differences in response time and
+# error rates between the emphasis conditions:
+
+drt <- function(data){
+  all <- tapply(data$rt,data$E,mean)
+  out <- c(all['neutral'] - all['speed'],all['accuracy'] - all['speed'])
+  names(out) <- c("NTR-SPD", "ACC-SPD")
+  return(out)
+}
+
+derr <- function(data){
+  data$correct <- data$S == data$R
+  all <- tapply(data$correct,data$E,mean)*100
+  out <- c(all['neutral'] - all['speed'],all['accuracy'] - all['speed'])
+  names(out) <- c("NTR-SPD", "ACC-SPD")
+  return(out)
+}
+
+par(mfrow = c(1,2))
+plot_stat(hLBA, list(LBA = pp_LBA), stat_fun = drt,
+  xlab = "RT (s) difference", layout = NULL,legendpos = c("topleft","topright"))
+plot_stat(hLBA, list(LBA = pp_LBA), stat_fun = derr,
+  xlab = "Accuracy (%) difference", layout = NULL,legendpos = c("topleft","topright"))
+
+# So accuracy is quite similar between Accuracy and Neutral,
+# but response times are a little different, with people being slower in
+# the accuracy condition. This cannot be captured by the model, since it
+# forces these to be the same for these effects across all parameters.
+
+# On our final model we can now also start to perform psychological inference
+# So far we have mostly looked at 'which model is better'. But from a psychological
+# point of view it might be more interesting to ask questions about the experimental
+# manipulations.
+# So as an example, which parameters are on-average affected by the manipulation.
+sampled_pars(hLBA)
+# Using hypothesis is different to compare here. Hypothesis uses a trick to compare
+# the model to a null model for which the parameter is set to a constant value (H0).
+# But this only works for strictly nested models. So here we compare the group-level
+# mean of the LBA model, to alternative models for which there is no group-level difference from
+# e.g. 0.
+
+# In compare, we check if this model is preferred across subjects, not on average.
+# It's like checking if there's a difference in alpha, or in mu.
+
+hypothesis(hLBA, parameter = "v_E2nonspeed")
+hypothesis(hLBA, parameter = "v_lMd:E2nonspeed")
+hypothesis(hLBA, parameter = "B_E2nonspeed")
+
+# To check the posteriors of inferential targets, we can use credint
+credint(hLBA, map = T)
+credint(hLBA, map = list(v = "E", B = "E"))
+
+# Between-subject analysis ------------------------------------------------
+# We're going to analyze a subset of the English Lexicon Project (ELP) data, where people completed
+# a lexical decision-making task
+rm(list = ls())
+load("data/ELP.RData")
+
+plot_cdf(data, factors = "S")
+
+head(data)
+# I have a standardized person-level covariate here
+hist(data$Shipley)
+
+# And a standardized trial-level covariate
+hist(data$LogFreq)
+# Which is 0 for non-words
+
+Smat <- cbind(d = c(-1, 1))
+des_ELP <- design(list(v ~ S + LogFreq,
+                   a ~ 1, t0 ~ 1, Z ~ 1, sv ~ 1, s ~ S),
+              data = data, model = DDM,
+              contrasts = list(v = list(S = Smat)),
+              constants = c(s = log(1)))
+
+# Given the nature of cognitive models, we think it's useful to break away
+# from the typical LME4 specification, and instead specify a separate subject-level
+# and group-level design.
+
+# This can be useful since often times we're not interested in the relationship
+# Between drift rate as a whole and the Shipley age, but rather in the relationship
+# between the stimulus sensitivity part of the drift rate (v_Sd), and how that's related
+# to the Shipley age. This split of formulae allows us to better make that specification.
+
+group_des_ELP <- group_design(formula = list(`v_Sd` ~ Shipley),
+                          subject_design = des_ELP,
+                          data = data)
+
+summary(group_des_ELP)
+
+# Create a very simple prior, leaving all the 'effects' to 0.
+pri_ELP <- prior(des_ELP, group_design = group_des_ELP,
+             mu_mean = c(`v_Sd` = 2,
+                         a = log(1),
+                         t0 = log(.25),
+                         sv = log(.3)))
+
+pri_ELP
+
+emc <- make_emc(data, design = des_ELP, group_design = group_des_ELP,
+                    prior_list = pri_ELP)
+save(emc,file="samples/ELP_DDM.RData")
+
+
+ELP_DDM <- get(load("samples/ELP_DDM.RData"))
+check(ELP_DDM)
+
+# Let's generate some posterior predictives
+pp_ELP <- predict(ELP_DDM, n_cores = 9)
+# First we plot the posterior predictives for the different stimulus types
+# Some misfit, but overall not too bad.
+plot_cdf(data, pp_ELP, factors = "S")
+
+# We can also plot the CDFs for continuous covariates, EMC will automatically
+# split them into 4 quantiles, so we keep a good overview.
+acc_fun <- function(data) factor(data$S == data$R)
+plot_cdf(data, pp_ELP, factors = "Shipley", functions = list('correct' = acc_fun),
+         defective_factor = "correct")
+
+# Now it's time for some inference
+# Let's first check the effect of log-frequency on both drift rate and drift variability
+hypothesis(ELP_DDM, parameter = "v_LogFreq")
+# So enormous effect on drift rate, with on top of the standard sensitivity to lexical info
+# the drift rate is pushed upwards massively for highly frequent words
+
+hypothesis(ELP_DDM, parameter = "s_Sword")
+# Also very convincing evidence, the drift variability is higher for words than for non-words
+
+# Now it's time for the question we've all been waiting for.
+# To test whether the Shipley age has an effect on drift rate, we need a new type of parameter:
+# "beta", here the difference between "mu" and "beta" is that mu is the implied mean, and beta is
+# the actual group-level regressors. Don't worry about it if that doesn't make sense!
+# Just remember, beta lets you check out group-level regressors
+hypothesis(ELP_DDM, parameter = "v_Sd_Shipley", selection = "beta")
+# And again a very large effect of shipley age on the drift rate!
+# To check out our posterior distribution:
+credint(ELP_DDM, selection = "beta")
+
+# So no consistent drift bias, both shipley age and log-frequency have a strong
+# effect on the drift rate and the within-trial drift variability is higher for
+# words than for non-words.
+
+
+
+
+
+
