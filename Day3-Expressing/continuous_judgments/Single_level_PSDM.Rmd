@@ -1,0 +1,373 @@
+---
+title: "Bayesian Estimation of the Projected Spherical Diffusion Model with EMC2"
+author: "Amir Hosein Hadian"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+```
+
+# Overview
+
+This tutorial demonstrates how to estimate a **Projected Spherical Diffusion Model** (PSDM; Hadian Rasanan et al, 2026) for a single participant using Bayesian estimation in `EMC2`.
+
+The example uses the data from experiment 1a from Hadian Rasanan et al (2026): A continuous mean estimation task with four stimulus-mean conditions (40, 60, 80, and 100). The PSDM is specified so that the mean direction of evidence accumulation varies across these stimulus conditions, while the drift magnitude, decision threshold, and non-decision time remain constant.
+
+
+# 1. Load EMC2 and set the random seed
+
+We begin by clearing the workspace, loading `EMC2`, and setting a random seed for reproducibility.
+
+```{r load-packages}
+rm(list = ls())
+
+library(EMC2)
+
+set.seed(123456)
+```
+
+# 2. Load the data
+
+The data are stored in `Hadian2026.csv`.
+
+```{r load-data}
+data <- read.csv(
+  "_data/Hadian2026.csv",
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+```
+
+Inspect the first few observations:
+
+```{r inspect-data}
+head(data)
+```
+
+# 3. Prepare the variables
+
+The participant identifier is converted to a factor.
+
+The stimulus mean is also converted to a factor with four levels.
+
+```{r prepare-factors}
+data$subjects <- factor(data$subjects)
+
+data$stim_mean <- factor(
+  data$stim_mean,
+  levels = c(40, 60, 80, 100),
+  labels = c("40", "60", "80", "100")
+)
+```
+
+It is useful to confirm the resulting factor levels:
+
+```{r factor-levels}
+levels(data$stim_mean)
+```
+
+# 4. Select a single participant
+
+This tutorial fits the PSDM to one participant at a time.
+
+We first obtain the identifier of the first participant:
+
+```{r select-subject}
+single_subject <- levels(data$subjects)[5]
+```
+
+Then we subset the data:
+
+```{r subset-subject}
+data_single <- droplevels(
+  data[data$subjects == single_subject, , drop = FALSE]
+)
+```
+
+The selected participant can be inspected with:
+
+```{r inspect-subject}
+single_subject
+head(data_single)
+```
+
+The same procedure can be used for another participant by replacing the `single_subject` with the desired participant identifier.
+
+# 5. Specify the PSDM
+
+The model design determines how the experimental conditions affect the PSDM parameters.
+
+```{r model-design}
+design_PSDM_Estimation <- design(
+  data = data_single,
+  Rlevels = "R",
+  formula = list(
+    v      ~ 1,
+    theta ~ 0 + stim_mean,
+    a      ~ 1,
+    t0     ~ 1
+  ),
+  constants = c(
+    sv = log(0)
+  ),
+  model = PSDM
+)
+```
+
+The model contains four main estimated components:
+
+- drift magnitude $v$;
+- drift directions $\theta_{40}$, $\theta_{60}$, $\theta_{80}$, and $\theta_{100}$;
+- decision threshold $a$;
+- non-decision time $t_0$.
+
+# 6. Inspect the model design
+
+Before fitting the model, it is important to check that the design has been constructed as intended.
+
+```{r print-design}
+print(design_PSDM_Estimation)
+```
+
+A more detailed summary is available with:
+
+```{r design-summary}
+summary(design_PSDM_Estimation)
+```
+
+The sampled parameters can be inspected using:
+
+```{r sampled-parameters}
+sampled_pars(design_PSDM_Estimation)
+```
+
+This is particularly useful for confirming the exact parameter names that need to be supplied when defining priors.
+
+# 7. Specify the priors
+
+We now specify prior means for the sampled parameters.
+
+```{r prior-means}
+p_vector <- c(
+  v = log(1),
+  theta1_stim_mean40  = qnorm(0.5),
+  theta1_stim_mean60  = qnorm(0.5),
+  theta1_stim_mean80  = qnorm(0.5),
+  theta1_stim_mean100 = qnorm(0.5),
+  a = log(4),
+  t0 = log(0.3)
+)
+```
+
+The corresponding prior standard deviations are:
+
+```{r prior-sd}
+prior_sd <- c(
+  v = 2,
+  theta1_stim_mean40  = 0.3,
+  theta1_stim_mean60  = 0.3,
+  theta1_stim_mean80  = 0.3,
+  theta1_stim_mean100 = 0.3,
+  a = 2,
+  t0 = 0.4
+)
+```
+
+The priors are specified on the transformed scales used internally by the model.
+
+For example:
+
+- `log(2)` centers the prior for the drift magnitude on a value corresponding to 2 after transformation;
+- `log(4)` centers the prior for the threshold on a value corresponding to 4;
+- `log(0.3)` centers the prior for non-decision time on approximately 0.3 seconds;
+- `qnorm(0.5)` equals zero and is used as the prior mean for the transformed drift-direction parameters.
+
+The prior standard deviations determine how strongly the prior constrains each parameter.
+
+# 8. Create the prior object
+
+The prior object is constructed using the model design.
+
+```{r create-prior}
+prior_PSDM_Estimation <- prior(
+  design_PSDM_Estimation,
+  pmean = p_vector,
+  psd = prior_sd,
+  type = "single"
+)
+```
+
+Because the model is fitted to a single participant, we specify:
+
+```r
+type = "single"
+```
+
+The prior specification can be inspected with:
+
+```{r prior-summary}
+summary(prior_PSDM_Estimation)
+```
+
+This step is useful for checking that the prior means and standard deviations have been correctly matched to the model parameters.
+
+# 9. Create the EMC object and fit it on data
+
+We now combine the participant data, the model design, and the prior specification.
+
+```{r make-emc}
+emc <- make_emc(
+  data = data_single,
+  design = design_PSDM_Estimation,
+  prior = prior_PSDM_Estimation
+)
+```
+
+The resulting object contains the information required for Bayesian estimation.
+
+Then, the model is fitted using:
+
+```{r fit-model}
+PSDM_emc <- fit(emc)
+```
+
+The fitting procedure samples from the joint posterior distribution of the model parameters.
+
+# 10. Check MCMC convergence
+
+Before interpreting the posterior estimates, the sampling process should be evaluated.
+
+```{r check-model}
+check(PSDM_emc)
+```
+
+```{r posterior-plot, fig.width=9, fig.height=6}
+plot(PSDM_emc)
+```
+
+
+# 11. Posterior credible intervals
+
+Credible intervals for the estimated parameters can be obtained using:
+
+```{r credible-intervals}
+credint(
+  PSDM_emc,
+  map = TRUE
+)
+```
+
+The credible intervals summarize posterior uncertainty for the model parameters.
+
+For this model, particular attention can be paid to the four drift angle parameters. These parameters describe how the estimated direction of evidence accumulation changes across stimulus means.
+
+# 12. Plot parameter estimates
+
+Posterior parameter estimates can be visualized using:
+
+```{r parameter-plot, fig.width=10, fig.height=6}
+plot_pars(
+  PSDM_emc,
+  map = TRUE,
+  use_prior_lim = FALSE
+)
+```
+
+# 13. Generate posterior predictive data
+
+Posterior predictive checks provide a direct way to evaluate whether the fitted model can reproduce the observed data.
+
+We generate posterior predictive samples using:
+
+```{r posterior-prediction}
+pp_PSDM <- predict(
+  PSDM_emc,
+  n_cores = 4,
+  n_post = 50
+)
+```
+
+Here:
+
+- `n_cores = 4` uses four CPU cores;
+- `n_post = 50` generates predictions from fifty posterior samples.
+
+For a final analysis, increasing `n_post` can provide a more stable representation of posterior predictive uncertainty.
+
+The simulated data can be inspected with:
+
+```{r inspect-prediction}
+head(pp_PSDM)
+```
+
+
+# 14. Posterior predictive density check
+
+Helper function for plotting defining the accuracy as function of absolute error in estimation.
+This function just considers every response as a correct response!
+
+```{r accuracy-function}
+acc_fun <- function(data) {
+  return(data$abs_estimation_error <= max(data$abs_estimation_error))
+}
+```
+
+
+# 14.1 Response time density:
+Observed and posterior-predictive response-time distributions can be compared across the four stimulus-mean conditions.
+
+```{r posterior-density, fig.width=9, fig.height=6}
+plot_density(
+  PSDM_emc,
+  pp_PSDM,
+  factors = "stim_mean",
+  functions = c(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+# 14.2 Response angle density:
+```{r posterior-density, fig.height=8}
+plot_density(
+  PSDM_emc,
+  pp_PSDM,
+  factors = "stim_mean",
+  density_over = "R",
+  layout = c(2, 2)
+)
+```
+
+
+# 14.3 Response angle density:
+
+The cumulative response-time distributions can also be compared.
+
+```{r posterior-cdf, fig.width=9, fig.height=6}
+plot_cdf(
+  PSDM_emc,
+  pp_PSDM,
+  factors = "stim_mean",
+  functions = c(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+
+# References
+
+Hadian Rasanan, A. H., Olschewski, S., & Rieskamp, J. (2026) The Projected Spherical Diffusion Model: A Theory of Evidence Accumulation for Continuous Estimation Tasks. *PsyArxiv* <https://doi.org/10.31234/osf.io/mhj6v_v1>
