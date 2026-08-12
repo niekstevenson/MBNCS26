@@ -251,8 +251,8 @@ designPM <- design(model=LBA, data=dats,
   contrasts = list(SlR=rate_design),
   matchfun=match_fun,
   formula=list(v~SlR,B ~ cond*lR,A ~ 1,t0 ~ 1,sv ~ lM),
-  constants=c(sv=log(1),v=log(1),"B_condPM:lRP" = log(1)),
-  pre_transform = list(func = c(v_SlRinh = "exp"))
+  constants=c(sv=log(1),v=log(1),"B_condPM:lRP" = log(1)) #,
+  # pre_transform = list(func = c(v_SlRinh = "exp"))
 )
 
 # Note that in order to maintain interpritability we need to make sure the
