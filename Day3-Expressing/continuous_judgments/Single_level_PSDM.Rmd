@@ -243,7 +243,15 @@ The resulting object contains the information required for Bayesian estimation.
 Then, the model is fitted using:
 
 ```{r fit-model}
-PSDM_emc <- fit(emc)
+fit_model <- FALSE
+
+if(fit_model){
+  PSDM_emc <- fit(emc)
+  save(PSDM_emc,file="_samples/PSDM_emc.RData")
+} else{
+  print(load("_samples/PSDM_emc.RData"))
+}
+
 ```
 
 The fitting procedure samples from the joint posterior distribution of the model parameters.
@@ -295,12 +303,19 @@ Posterior predictive checks provide a direct way to evaluate whether the fitted 
 We generate posterior predictive samples using:
 
 ```{r posterior-prediction}
-pp_PSDM <- predict(
-  PSDM_emc,
-  n_cores = 4,
-  n_post = 50
-)
+sim_model <- FALSE
+if (sim_model){
+  pp_PSDM <- predict(
+    PSDM_emc,
+    n_cores = 4,
+    n_post = 50
+  )
+  save(pp_PSDM, file="pp_PSDM.RData")
+} else{
+  print(load("pp_PSDM.RData"))
+}
 ```
+
 
 Here:
 

@@ -212,6 +212,8 @@ These priors encode the expectation that evidence quality decreases as stimulus 
 We now combine the data, design, and priors into an EMC2 object and sample from the posterior distribution.
 
 ```{r fit-model, cache=TRUE}
+fit_model <- FALSE
+
 emc <- make_emc(
   data = data_single,
   design = design_CDM_SAT,
@@ -219,7 +221,12 @@ emc <- make_emc(
   type = "single"
 )
 
-CDM_emc <- fit(emc)
+if(fit_model){
+  CDM_emc <- fit(emc)
+  save(CDM_emc,file="_samples/CDM_emc.RData")
+} else{
+  print(load("_samples/CDM_emc.RData"))
+}
 ```
 
 Because Bayesian estimation is based on Monte Carlo sampling, convergence should be checked before interpreting the posterior.
@@ -257,11 +264,17 @@ plot_pars(CDM_emc, map = TRUE, use_prior_lim = FALSE)
 A fitted model should reproduce important properties of the observed data, not merely yield plausible parameter estimates. We therefore generate posterior-predictive datasets.
 
 ```{r posterior-prediction, cache=TRUE}
-pp_CDM <- predict(
-  CDM_emc,
-  n_cores = 4,
-  n_post = 50
-)
+sim_model <- FALSE
+if (sim_model){
+  pp_CDM <- predict(
+    CDM_emc,
+    n_cores = 4,
+    n_post = 50
+  )
+  save(pp_CDM, file="pp_CDM.RData")
+} else{
+  print(load("pp_CDM.RData"))
+}
 
 head(pp_CDM)
 ```
