@@ -44,26 +44,26 @@ lapply(dats,levels)
 #
 # The key PMDC processes determining accumulation rates include:
 #
-#   1) **Ongoing-task quality (qual):**
-#   - The difference between the matching ("correct") ongoing task accumulation
-#     rate and mismatching accumulation rate.
-#   - *Indexes how good ongoing-task processing is (discrimination quality)*
+  # 1) **Ongoing-task quality (qual):**
+  # - The difference between the matching ("correct") ongoing task accumulation
+  #   rate and mismatching accumulation rate.
+  # - *Indexes how good ongoing-task processing is (discrimination quality)*
+  #
+  # 2) **Ongoing-task urgency (urg):**
+  # - The sum of matching and mismatching ongoing-task accumulation rates.
+  # - *Indexes how fast processing is.*
 #
-#   2) **Ongoing-task urgency (urg):**
-#   - The sum of matching and mismatching ongoing-task accumulation rates.
-#   - *Indexes how fast processing is.*
-#
-#   3) **Feedforward inhibition induced by PM inputs (inh):**
-#   - The difference between ongoing-task accumulation rates in non-PM vs. PM trials.
-#   - *Indexes the extent to which PM inputs slow the accumulation of the OT.*
+  # 3) **Feedforward inhibition induced by PM inputs (inh):**
+  # - The difference between ongoing-task accumulation rates in non-PM vs. PM trials.
+  # - *Indexes the extent to which PM inputs slow the accumulation of the OT.*
 #
 # It also allows adaptations to thresholds to meet PM demands.
 
-#   4) **Proactive Control**
-#   - For example, an increase in ongoing-task thresholds in PM conditions
-#     relative to control.
-#   - Measures how participants strategically delay ongoing-task responding to
-#     make more time for PM accumulation/retrieval
+  # 4) **Proactive Control**
+  # - For example, an increase in ongoing-task thresholds in PM conditions
+  #   relative to control.
+  # - Measures how participants strategically delay ongoing-task responding to
+  #   make more time for PM accumulation/retrieval
 
 
 # Some bespoke utility functions
