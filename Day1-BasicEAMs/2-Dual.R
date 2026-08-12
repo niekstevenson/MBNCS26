@@ -583,10 +583,16 @@ plot(priorDDM,designDDM,layout=c(2,6))
 # errors are faster relative to correct responses (as occurs when fast
 # responding is emphasized, as is the case here so we continue to
 # estimate this parameter throughout).
-sDDM <-  make_emc(dat,designDDM,type="single",prior=priorDDM)
-sDDM <- fit(sDDM)
-# save(sDDM, file = "samples/sDDM.RData")
-load("samples/sDDM.RData")
+emc <-  make_emc(dat,designDDM,type="single",prior=priorDDM)
+
+# We will fit in batch mode, using the script runDDM.R
+save(emc, file = "samples/sDDM.RData")
+
+# # Run on the command line  Tools >> Terminal >> New Terminal
+# nohup R CMD BATCH runDDM.R &
+
+# Load the fitted object
+sDDM <- get(load("samples/sDDM.RData"))
 
 # Although slower, sampling works quite well thanks to EMC2's robust and
 # efficient sampler.
