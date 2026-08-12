@@ -9,7 +9,7 @@ dat <- forstmann
 # We have kept relevant descriptions of that tutorial in here, but will
 # not go into detail on that.
 
-plot_cdf(dat, factors = c("E", "S"))
+plot_cdf(dat, factors = c("E", "S", "subjects"), layout = c(1,2))
 
 
 #### Design ----
@@ -147,7 +147,7 @@ mu_mean <- c(v=1, v_E2nonspeed = -.2, v_lMd=1, "v_lMd:E2nonspeed"=.2,
 mu_sd <- c(v=1, v_lMd=0.5, "v_lMd:E2nonspeed"=0.5,
            sv_lMd=.5,B=0.3, B_E2nonspeed=0.3,B_lRright=0.3, A=0.4, t0=.5)
 
-prior_hLBA <- prior(design_hLBA, type = 'standard',mu_mean=mu_mean,
+prior_hLBA <- prior(design_hLBA, mu_mean=mu_mean,
                       mu_sd=mu_sd)
 
 # We can also plot what our prior proposes for the individual accumulation paths.
@@ -193,6 +193,7 @@ plot(prior_new, layout = c(2,3), selection = "sigma2", N = 1e4, map = F)
 #### Fitting ----
 
 emc <- make_emc(dat,design_hLBA, prior=prior_hLBA)
+save(emc, file = "run_LBA.RData")
 hLBA <- fit(emc, cores_per_chain = 4, fileName="tmp.RData")
 hLBA <- save(hLBA, file = "samples/hLBA.RData")
 hLBA <- get(load("samples/hLBA.RData"))
@@ -209,7 +210,7 @@ check(hLBA,selection = c("mu", "sigma2","correlation","alpha"))
 # Furthermore, we don't assume response bias is affected by E2; so we
 # set the intercept to 0.
 Smat <- cbind(d = c(-1, 1))
-design_hDDM <- design(data = dat,model=DDM,LT=.25,UT=1.5,
+design_hDDM <- design(data = dat,model=DDM,
                       formula=list(v~S*E2,a~E2,Z~1,t0~1, sv ~ 1),
                       functions=list(E2=E2),
                       contrasts = list(S = Smat),

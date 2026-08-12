@@ -1,0 +1,338 @@
+---
+title: "Bayesian Estimation of the Circular Diffusion Model with EMC2"
+author: "Amir Hosein Hadian"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+```
+
+# Overview
+
+This tutorial presents a **Bayesian** estimation of the Circular Diffusion Model
+(CDM; Smith, 2016) using the `EMC2` to model the continuous orientation-judgment data from Kvam (2019) and demonstrates how experimental manipulations can be mapped onto condition-specific model parameters.
+
+The experiment contains two manipulations:
+
+- **Speed--accuracy instruction** (`isSpeed`): accuracy versus speed blocks.
+- **Stimulus difficulty** (`jitter`): orientation jitter of 15, 30, or 45 degrees.
+
+To estimate the model we assume a CDM with:
+
+- drift magnitude, $v$, varies across the three jitter levels;
+- decision threshold, $a$, varies between speed and accuracy conditions;
+- drift angle, $\theta$, is shared across conditions;
+- non-decision time, $t_0$, is shared across conditions;
+
+# 1. Load EMC2 and other required packages
+
+```{r packages}
+library(EMC2)
+
+set.seed(123456)
+```
+
+> **Important:** This tutorial assumes an `EMC2` installation/build in which the Circular Diffusion Model is available as `CDM`, as in the accompanying R script. If `CDM` is not found in your installation, please use the development version.
+
+# 2. Load and prepare the data
+
+The Kvam (2019) data contains the following columns:
+
+- `subjects`: participant identifier;
+- `isSpeed`: instruction condition, coded `0 = accuracy` and `1 = speed` in the raw file;
+- `jitter`: stimulus jitter in degrees (15, 30, or 45);
+- `abs_error`: absolute angular response error in radians;
+- `R`: signed angular response error in radians;
+- `rt`: response time in seconds.
+
+
+```{r load-data}
+possible_paths <- c(
+  "_data/Kvam2019.csv"
+)
+
+data_path <- possible_paths[file.exists(possible_paths)][1]
+
+if (is.na(data_path)) {
+  stop(
+    "Could not find the Kvam2019 data file. Place it in '_data/Kvam2019.csv' ",
+    "or in the same directory as this R Markdown file."
+  )
+}
+
+data <- read.csv(
+  data_path,
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+
+# Convert experimental variables to factors
+data$subjects <- factor(data$subjects)
+data$isSpeed <- factor(
+  data$isSpeed,
+  levels = c(0, 1),
+  labels = c("accuracy", "speed")
+)
+data$jitter <- factor(data$jitter)
+
+head(data)
+```
+
+A quick summary of the design is useful before fitting the model.
+
+```{r data-summary}
+cat("Number of participants:", nlevels(data$subjects), "\n")
+cat("Number of trials:", nrow(data), "\n\n")
+
+with(data, table(jitter, isSpeed))
+```
+
+# 3. Select one participant
+
+The current example is a **single-level Bayesian analysis**. We therefore begin with the a single participant.
+
+```{r select-participant}
+single_subject <- levels(data$subjects)[3]
+
+data_single <- droplevels(
+  data[data$subjects == single_subject, , drop = FALSE]
+)
+
+cat("Participant:", single_subject, "\n")
+cat("Number of trials:", nrow(data_single), "\n")
+```
+
+To visualize the behavioral data, we define a response as relatively accurate when its absolute angular error is no larger than 10 degrees ($\pi/18$ radians). This is used only for plotting and posterior-predictive summaries; it does **not** convert the continuous-response model into a binary-choice model.
+
+```{r observed-density, fig.height=5}
+acc_fun <- function(data) {
+  data$abs_error <= pi
+}
+
+plot_density(
+  data_single,
+  factors = "jitter",
+  functions = c(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+# 4. Specify the Circular Diffusion Model
+
+The key step is to translate the experimental design into linear-model formulas for the CDM parameters.
+
+```{r check-CDM}
+?CDM
+```
+
+```{r model-design}
+design_CDM_SAT <- design(
+  data = data_single,
+  Rlevels = "R",
+  formula = list(
+    v     ~ 0 + jitter,
+    theta ~ 1,
+    a     ~ isSpeed,
+    t0    ~ 1
+  ),
+  model = CDM
+)
+```
+
+- `v ~ 0 + jitter` estimates a separate drift magnitude for each jitter (difficulty) level. Removing the intercept gives the parameters `v_jitter15`, `v_jitter30`, and `v_jitter45` directly.
+- `theta ~ 1` estimates one common drift angle across all conditions.
+- `a ~ isSpeed` estimates a baseline threshold for the reference level (`accuracy`) plus a speed-condition effect. Thus, the model allows response caution to differ between speed and accuracy instructions.
+- `t0 ~ 1` estimates one common non-decision time.
+- The model does not include any across-variability.
+
+We can inspect the resulting design and the parameters that EMC2 will sample.
+
+```{r inspect-design}
+print(design_CDM_SAT)
+summary(design_CDM_SAT)
+sampled_pars(design_CDM_SAT)
+```
+
+# 5. Specify Bayesian priors
+
+In the optimization-based JEAM analysis, parameter ranges constrain the search space. In Bayesian estimation, we instead express plausible parameter values through prior distributions.
+
+The prior means below reproduce the values from the accompanying EMC2 script. Positive parameters such as drift magnitude, threshold, and non-decision time are centered on the transformed scale used by the model.
+
+```{r priors}
+p_vector <- c(
+  v_jitter15       = log(2),
+  v_jitter30       = log(1.5),
+  v_jitter45       = log(1),
+  theta            = qnorm(0.5),
+  a                = log(1),
+  a_isSpeedspeed   = -0.2,
+  t0               = log(0.3)
+)
+
+prior_sd <- c(
+  v_jitter15       = 1,
+  v_jitter30       = 1,
+  v_jitter45       = 1,
+  theta            = 0.3,
+  a                = 2,
+  a_isSpeedspeed   = 0.2,
+  t0               = 0.4
+)
+
+prior_CDM_SAT <- prior(
+  design_CDM_SAT,
+  pmean = p_vector,
+  psd = prior_sd,
+  type = "single"
+)
+
+prior_CDM_SAT
+```
+
+These priors encode the expectation that evidence quality decreases as stimulus jitter increases: the prior center for drift magnitude is highest for jitter 15, intermediate for jitter 30, and lowest for jitter 45. The negative prior center for `a_isSpeedspeed` expresses the expectation that the decision threshold is lower under speed emphasis than under accuracy emphasis.
+
+# 6. Create the EMC2 object and fit the model
+
+We now combine the data, design, and priors into an EMC2 object and sample from the posterior distribution.
+
+```{r fit-model, cache=TRUE}
+fit_model <- FALSE
+
+emc <- make_emc(
+  data = data_single,
+  design = design_CDM_SAT,
+  prior = prior_CDM_SAT,
+  type = "single"
+)
+
+if(fit_model){
+  CDM_emc <- fit(emc)
+  save(CDM_emc,file="_samples/CDM_emc.RData")
+} else{
+  print(load("_samples/CDM_emc.RData"))
+}
+```
+
+Because Bayesian estimation is based on Monte Carlo sampling, convergence should be checked before interpreting the posterior.
+
+# 7. Check sampling and convergence
+
+```{r convergence-check}
+check(CDM_emc)
+```
+
+Trace and marginal posterior plots provide a visual diagnostic of the sampler.
+
+```{r posterior-traces, fig.height=7}
+plot(CDM_emc)
+```
+
+Poor mixing, strong trends across iterations, or disagreement between chains should be addressed before interpreting parameter estimates or posterior predictions.
+
+# 8. Summarize the posterior distributions
+
+Posterior credible intervals quantify uncertainty in each parameter. Setting `map = TRUE` reports parameters on their mapped/interpretable scale where supported by the model.
+
+```{r credible-intervals}
+credint(CDM_emc, map = TRUE)
+```
+
+The posterior distributions can also be visualized directly.
+
+```{r posterior-parameters, fig.height=6}
+plot_pars(CDM_emc, map = TRUE, use_prior_lim = FALSE)
+```
+
+# 9. Posterior-predictive simulation
+
+A fitted model should reproduce important properties of the observed data, not merely yield plausible parameter estimates. We therefore generate posterior-predictive datasets.
+
+```{r posterior-prediction, cache=TRUE}
+sim_model <- FALSE
+if (sim_model){
+  pp_CDM <- predict(
+    CDM_emc,
+    n_cores = 4,
+    n_post = 50
+  )
+  save(pp_CDM, file="pp_CDM.RData")
+} else{
+  print(load("pp_CDM.RData"))
+}
+
+head(pp_CDM)
+```
+
+`n_post` controls the number of posterior draws used for prediction. For a publication-quality posterior-predictive assessment, it is generally useful to increase this value once the model-fitting workflow has been verified.
+
+# 10. Posterior-predictive checks
+
+## 10.1 Response time density:
+
+The following plot compares observed and posterior-predicted response distributions across jitter and speed--accuracy conditions.
+
+```{r posterior-density, fig.height=8}
+plot_density(
+  CDM_emc,
+  pp_CDM,
+  factors = c("isSpeed", "jitter"),
+  functions = c(correct = acc_fun),
+  defective_factor = "correct",
+  layout = c(2, 3)
+)
+```
+
+## 10.2 Response angle density:
+```{r posterior-density, fig.height=8}
+plot_density(
+  CDM_emc,
+  pp_CDM,
+  density_over = "R",
+  factors = c("isSpeed", "jitter"),
+  layout = c(2, 3)
+)
+```
+
+
+## 10.3 Response time CDF:
+
+We can also examine whether the posterior predictions reproduce the shape and condition dependence of the response-time distributions.
+
+```{r posterior-cdf, fig.height=8}
+plot_cdf(
+  CDM_emc,
+  pp_CDM,
+  factors = c("isSpeed", "jitter"),
+  functions = c(correct = acc_fun),
+  defective_factor = "correct",
+  layout = c(2, 3)
+)
+```
+
+Together, the response time and response angle densities and CDF checks assess whether the CDM jointly accounts for **continuous response error and response time**, which is the central advantage of the model.
+
+# References
+
+Kvam, P. D. (2019). Modeling accuracy, response time, and bias in continuous orientation judgments. *Journal of Experimental Psychology: Human Perception and Performance*, **45**(3), 301--318. <https://doi.org/10.1037/xhp0000606>
+
+Smith, P. L. (2016). Diffusion theory of decision making in continuous report. *Psychological Review*, **123**(4), 425–451. <https://doi.org/10.1037/rev0000023>
+
+
+
+

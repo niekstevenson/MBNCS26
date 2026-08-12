@@ -1,0 +1,339 @@
+---
+title: "Hierarchical Bayesian Estimation of the Circular Diffusion Model with EMC2"
+author: "Amir Hosein Hadian"
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.align = "center",
+  fig.width = 8,
+  fig.height = 5
+)
+```
+
+# Overview
+
+This tutorial demonstrates how to estimate a **hierarchical Bayesian** Circular Diffusion Model (CDM; Smith, 2016) using the `EMC2` package.
+
+The model is fitted simultaneously to data from multiple participants. In a hierarchical Bayesian model, participant-level parameters are estimated together with group-level distributions. This allows information to be shared across participants while still preserving individual differences.
+
+# 1. Load packages and set the random seed
+
+We begin by clearing the workspace, loading `EMC2`, and setting a random seed so that stochastic parts of the analysis are reproducible.
+
+```{r load-packages}
+rm(list = ls())
+
+library(EMC2)
+
+set.seed(123456)
+```
+
+# 2. Load the data
+
+The data are stored in `Kvam2019.csv`.
+
+```{r load-data}
+data <- read.csv(
+  "_data/Kvam2019.csv",
+  header = TRUE,
+  stringsAsFactors = FALSE
+)
+```
+
+Inspect the first few rows:
+
+```{r inspect-data}
+head(data)
+```
+
+The hierarchical analysis requires a participant identifier. Here, the `subjects` column identifies individual participants.
+
+# 3. Prepare categorical variables
+
+We convert the relevant variables to factors.
+
+```{r prepare-factors}
+data$subjects <- factor(data$subjects)
+
+data$isSpeed <- factor(
+  data$isSpeed,
+  levels = c(0, 1),
+  labels = c("accuracy", "speed")
+)
+
+data$jitter <- factor(data$jitter)
+```
+
+It is useful to verify the resulting factor levels before fitting the model.
+
+```{r inspect-factors}
+levels(data$subjects)
+levels(data$isSpeed)
+levels(data$jitter)
+```
+
+
+# 4. Visualize the observed data
+
+Before fitting a cognitive model, it is useful to inspect the empirical response distributions.
+
+```{r accuracy-function}
+acc_fun <- function(data) {
+  return(data$abs_error <= pi)
+}
+```
+
+We can then plot the observed response-time density separately for the different jitter conditions.
+
+```{r observed-density, fig.width=8, fig.height=5}
+plot_density(
+  data,
+  factors = c("isSpeed", "jitter"),
+  functions = c(correct = acc_fun),
+  defective_factor = "correct",
+  layout = c(2, 3)
+)
+```
+
+```{r observed-density, fig.width=8, fig.height=5}
+plot_density(
+  data,
+  density_over = "R",
+  factors = c("isSpeed", "jitter"),
+  layout = c(2, 3)
+)
+```
+
+These plots provide an initial description of how response times and response errors vary across stimulus conditions.
+
+# 5. Specify the circular diffusion model
+
+The experimental manipulations are incorporated into the CDM through the model design.
+
+```{r model-design}
+design_CDM_SAT <- design(
+  data = data,
+  Rlevels = "R",
+  formula = list(
+    v     ~ 0 + jitter,
+    theta ~ 1,
+    a     ~ isSpeed,
+    t0    ~ 1,
+    sv    ~ 1
+  ),
+  model = CDM 
+)
+```
+
+The formulas determine which parameters vary across experimental conditions.
+
+- `v ~ 0 + jitter` estimates a separate drift magnitude for each jitter (difficulty) level. Removing the intercept gives the parameters `v_jitter15`, `v_jitter30`, and `v_jitter45` directly.
+- `theta ~ 1` estimates one common drift angle across all conditions.
+- `a ~ isSpeed` estimates a baseline threshold for the reference level (`accuracy`) plus a speed-condition effect. Thus, the model allows response caution to differ between speed and accuracy instructions.
+- `t0 ~ 1` estimates one common non-decision time.
+- `sv ~ 1` estimates an across-variability in drift rate.
+
+# 6. Inspect the model design
+
+Before fitting the model, it is important to confirm that the design matrix and parameter mapping are what we intended.
+
+```{r inspect-design}
+print(design_CDM_SAT)
+```
+
+A more detailed summary can be obtained with:
+
+```{r design-summary}
+summary(design_CDM_SAT)
+```
+
+The parameters that will be sampled can be inspected using:
+
+```{r sampled-parameters}
+sampled_pars(design_CDM_SAT)
+```
+
+This step is especially useful when a model contains several factor-dependent parameters.
+
+# 7. Hierarchical Bayesian estimation
+
+The EMC object is created using the complete data set.
+
+```{r make-emc}
+emc <- make_emc(
+  data = data,
+  design = design_CDM_SAT
+)
+```
+
+Because all participants are included in `data`, the model is fitted hierarchically rather than separately for each participant.
+
+The hierarchical structure provides partial pooling: participant-level estimates are informed by both the participant's own data and the population-level distribution.
+
+# 8. Fit the hierarchical model
+
+We now fit the model.
+
+```{r fit-model}
+fit_model <- FALSE
+
+if(fit_model){
+  hier_CDM_emc <- fit(emc)
+  save(hier_CDM_emc, file="_samples/hier_CDM_emc.RData")
+} else{
+  print(load("_samples/hier_CDM_emc.RData"))
+}
+
+
+
+```
+
+Depending on the number of participants, trials, and MCMC settings, hierarchical estimation can be computationally intensive.
+
+# 9. Check sampling and convergence
+
+After fitting the model, the first step is to inspect the sampler diagnostics.
+
+```{r check-model}
+check(hier_CDM_emc)
+```
+
+The purpose of this step is to determine whether the posterior sampler has adequately explored the posterior distribution.
+
+
+# 10. Plot the chains
+
+Posterior distributions can be visualized directly.
+
+```{r posterior-plots, fig.width=9, fig.height=6}
+plot(hier_CDM_emc)
+```
+
+These plots are useful for examining posterior uncertainty and identifying possible sampling problems.
+
+# 11. Credible intervals
+
+Posterior credible intervals can be obtained using:
+
+```{r credible-intervals}
+credint(
+  hier_CDM_emc,
+  map = TRUE
+)
+```
+
+# 12. Group- and participant-level parameter estimates
+
+One of the main advantages of hierarchical estimation is that the model provides both population-level and participant-level parameter estimates.
+
+The following plot displays the hierarchical parameter estimates while also showing individual participants:
+
+```{r subject-parameters, fig.width=10, fig.height=7}
+plot_pars(
+  hier_CDM_emc,
+  map = TRUE,
+  all_subjects = TRUE,
+  use_prior_lim = FALSE
+)
+```
+
+This visualization makes it possible to examine individual differences relative to the population-level posterior.
+
+Participant estimates in a hierarchical model are partially pooled toward the population distribution. Participants with less informative data generally receive more shrinkage than participants whose data strongly identify their parameters.
+
+# 13. Posterior predictive simulation
+
+Posterior predictive checks evaluate whether data generated from the fitted model resemble the observed data.
+
+We first generate posterior predictive data.
+
+```{r posterior-prediction}
+sim_model <- FALSE
+if (sim_model){
+  pp_hier_CDM <- predict(
+    hier_CDM_emc,
+    n_cores = 4,
+    n_post = 50
+  )
+  save(pp_hier_CDM, file="pp_hier_CDM.RData")
+} else{
+  print(load("pp_hier_CDM.RData"))
+}
+
+```
+
+
+Here:
+
+- `n_cores = 4` uses four CPU cores for posterior prediction;
+- `n_post = 50` draws predictions from fifty posterior samples.
+
+For a final analysis, a larger value of `n_post` may provide a more stable representation of posterior predictive uncertainty.
+
+Inspect the structure of the simulated data:
+
+```{r inspect-posterior-prediction}
+head(pp_hier_CDM)
+```
+
+# 14. Posterior predictive density check
+
+We can compare observed and posterior-predictive response-time distributions across both jitter and speed--accuracy conditions.
+
+```{r posterior-density, fig.width=10, fig.height=8}
+plot_density(
+  hier_CDM_emc,
+  pp_hier_CDM,
+  functions = c(correct = acc_fun),
+  defective_factor = "correct",
+  factors = c("isSpeed", "jitter"),
+  layout = c(2, 3)
+)
+```
+
+```{r posterior-density, fig.width=10, fig.height=8}
+plot_density(
+  hier_CDM_emc,
+  pp_hier_CDM,
+  density_over = "R",
+  factors = c("isSpeed", "jitter"),
+  layout = c(2, 3)
+)
+```
+
+A well-fitting model should reproduce the major characteristics of the empirical response-time and response angle distributions across conditions.
+
+# 15. Posterior predictive CDF check
+
+The cumulative distribution function provides another useful posterior predictive diagnostic.
+
+```{r posterior-cdf, fig.width=10, fig.height=8}
+plot_cdf(
+  hier_CDM_emc,
+  pp_hier_CDM,
+  factors = c("isSpeed", "jitter"),
+  functions = c(correct = acc_fun),
+  defective_factor = "correct",
+  layout = c(2, 3)
+)
+```
+
+CDF plots are particularly useful for identifying systematic discrepancies across different portions of the response-time distribution.
+
+# References
+
+Kvam, P. D. (2019). Modeling accuracy, response time, and bias in continuous orientation judgments. *Journal of Experimental Psychology: Human Perception and Performance*, **45**(3), 301--318. <https://doi.org/10.1037/xhp0000606>
+
+Smith, P. L. (2016). Diffusion theory of decision making in continuous report. *Psychological Review*, **123**(4), 425–451. <https://doi.org/10.1037/rev0000023>
