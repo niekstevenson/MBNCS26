@@ -3,7 +3,18 @@
 
 [Website link](https://modelbasedneurosci.com/) (not specific for just 2026)
 
-### Program
+### Relevant software links
+
+[R](https://www.r-project.org/) / [RStudio](https://posit.co/downloads)
+
+[Python](https://www.python.org/)
+
+[EMC2](https://ampl-psych.r-universe.dev/EMC2)
+
+[BayesFlow](https://bayesflow.org)
+
+
+### Schedule
 
 #### Day 1
 
