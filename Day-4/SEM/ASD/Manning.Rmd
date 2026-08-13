@@ -1,0 +1,248 @@
+---
+title: "SEM analysis notes"
+output: pdf_document
+fontsize: 11pt
+geometry: margin=1in
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+# Use the development version of EMC2
+# remotes::install_github("ampl-psych/EMC2", ref = "dev")
+library(EMC2)
+```
+
+```{r}
+standardize_covariate <- function(x) {
+  m <- mean(x, na.rm = TRUE)
+  s <- sd(x, na.rm = TRUE)
+
+  z <- (x - m) / s
+  z[is.na(z)] <- 0
+
+  return(z)
+}
+```
+
+# Preprocessing
+
+The preprocessing is mostly straightforward:
+keep the columns that matter, standardize the person-level covariates, trim obviously bad RTs, and recode the task factors into something readable.
+
+```{r}
+orient <- read.csv("O_incl_ageupdated.csv")
+motion <- read.csv("MC_speedacc_incl.csv")
+
+# Not including inattentiveness and hyperactivity for now they are NA, and
+# shuffled doesn't make sense I think?
+covariates <- c("SCQ", "SPSI1", "SPSI2", "TOWRE_OVERALL", "age", "FSIQ")
+
+orient <- orient[, c("ID", "stimlev", "OriLoR", "keypress", "RT", covariates)]
+motion <- motion[, c("ID", "coherencelev", "motiondir", "task", "keypress", "RT", covariates)]
+
+covnames <- c("ASD", "S1", "S2", "TOWRE", "age", "IQ")
+# D for difficulty, S for stimulus, E for emphasis, R for response
+colnames(orient) <- c("subjects", "D", "S", "R", "rt", covnames)
+colnames(motion) <- c("subjects", "D", "S", "E", "R", "rt", covnames)
+
+for (cov in covnames) {
+  orient[, cov] <- standardize_covariate(orient[, cov])
+  motion[, cov] <- standardize_covariate(motion[, cov])
+}
+
+orient <- orient[orient$rt > 0.15 & orient$rt < 5, ]
+motion <- motion[motion$rt > 0.15 & motion$rt < 5, ]
+
+orient$D <- ifelse(orient$D == 1, "hard", "easy")
+orient$S <- ifelse(orient$S == 1, "left", "right")
+orient$R <- ifelse(orient$R == 1, "left", "right")
+
+motion$D <- ifelse(motion$D == 1, "hard", "easy")
+motion$S <- ifelse(motion$S == 1, "left", "right")
+motion$R <- ifelse(motion$R == 1, "left", "right")
+motion$E <- ifelse(motion$E == 1, "ACC", "SPD")
+
+keep_subs <- intersect(unique(motion$subjects), unique(orient$subjects))
+motion <- motion[motion$subjects %in% keep_subs, ]
+orient <- orient[orient$subjects %in% keep_subs, ]
+
+orient$D <- factor(orient$D)
+orient$S <- factor(orient$S)
+orient$R <- factor(orient$R)
+orient$subjects <- factor(orient$subjects)
+
+motion$D <- factor(motion$D)
+motion$S <- factor(motion$S)
+motion$R <- factor(motion$R)
+motion$E <- factor(motion$E)
+motion$subjects <- factor(motion$subjects)
+```
+
+# Model setup
+
+The two tasks are set up with closely related DDMs.
+For orientation, threshold is constant across conditions.
+For motion, threshold is allowed to vary with the emphasis manipulation.
+The SEM then ties together the subject-level parameters from both tasks.
+
+```{r}
+Smat <- cbind(d = c(-1, 1))
+# Split drift rate into mean and difference
+# the mean corresponds to drift bias (i.e. favoring left or right moving stimuli)
+# I set v_Dhard to 0, since I don't think difficulty should affect drift bias.
+# See also EMC2 paper
+design_orient <- design(
+  formula = list(v ~ D * S, a ~ 1, t0 ~ 1, Z ~ 1, sv ~ 1),
+  data = orient,
+  contrasts = list(S = Smat),
+  model = DDM,
+  constants = c(v_Dhard = 0)
+)
+
+# Same design, except allowing different a for levels of E
+design_motion <- design(
+  formula = list(v ~ D * S, a ~ E, t0 ~ 1, Z ~ 1, sv ~ 1),
+  data = motion,
+  contrasts = list(S = Smat),
+  model = DDM,
+  constants = c(v_Dhard = 0)
+)
+
+joint_design <- list(o = design_orient, m = design_motion)
+joint_data <- list(o = orient, m = motion)
+names(sampled_pars(joint_design))
+
+# We only need 1 data frame here, since it's only about the person-level covariates
+# that are extracted from the data (which should be the same between them)
+sem_structure <- make_sem_structure(
+  data = orient,
+  covariate_cols = covnames,
+  design = joint_design,
+  lambda_specs = list(
+    caution = c("o|a", "m|a"),
+    drift = c("o|v_Sd", "m|v_Sd"),
+    drift_change = c("o|v_Dhard:Sd", "m|v_Dhard:Sd"),
+    t0 = c("o|t0", "m|t0")
+  ),
+  g_specs = list(
+    caution = c("ASD", "TOWRE", "age"),
+    drift = c("TOWRE", "age", "IQ"),
+    drift_change = c("TOWRE", "age", "IQ"),
+    t0 = c("TOWRE", "age", "S1", "S2")
+  )
+)
+```
+
+I am leaving the estimation code here so the full flow is still visible, but for this document I am just loading the saved samples.
+
+```{r eval=FALSE}
+# Don't run this here, takes too long!
+emc <- make_emc(data = joint_data, design = joint_design, type = "SEM", sem_settings = sem_structure)
+emc <- fit(emc, cores_per_chain = 12, fileName = "SEM.RData")
+```
+
+# Load saved samples
+
+So from here on it is just the fitted object from disk.
+
+```{r}
+load("ASD_SEM.RData")
+```
+
+# Quick chain check
+
+This is just a quick MCMC chain convergence check.
+The broad picture is fine enough to inspect the model, but two of the subject-level `t0` chains are still not good.There is clear bimodality (which is why the chain looks so weird)
+So for anything final this would need a longer run.
+
+```{r}
+check(emc)
+```
+
+# Posterior predictive
+
+The posterior predictive is useful mainly as a rough check of where the model is doing fine and where it is probably too simple. 
+At least at the moment, the harder condition for the orientation task may be affecting more than just drift since there's some misfit. In green the model posterior predictive density, in black the data
+
+```{r}
+pp <- predict(emc, n_cores = 10)
+
+acc_fun <- function(data) factor(data$S == data$R)
+dat <- get_data(emc)
+
+# Depends a bit on the task, maybe also D affects s?
+plot_density(
+  dat$o,
+  pp$o,
+  factors = "D",
+  functions = list(correct = acc_fun),
+  defective_factor = "correct"
+)
+
+# This is much better already, just a bit of misfit
+plot_density(
+  dat$m,
+  pp$m,
+  factors = c("D", "E"),
+  functions = list(correct = acc_fun),
+  defective_factor = "correct"
+)
+```
+
+# Group-level means
+
+This is the first place where the manipulation check shows up directly.
+What I mainly want to see here is lower drift rates for the hard condition and lower thresholds for the speed emphasis condition.
+
+```{r}
+credint(emc, selection = "mu", map = T)
+```
+
+# Factor loadings
+
+The standardized loadings tells us across task relationships
+
+```{r}
+credint(emc, selection = "std_loadings")
+```
+
+# Factor regressors
+
+These are the factor regressors from the SEM.
+Here I calculate both the interval summary and the corresponding Bayes factor for the point null.
+
+```{r}
+target <- credint(emc, selection = "factor_regressors", flatten = TRUE)
+target
+```
+
+The intervals give the sign and rough size.
+The Bayes factors are calculated with the Savage-Dickey ratios from `hypothesis()`.
+
+```{r}
+bayes_factors <- sapply(
+  rownames(target$factor_regressors),
+  function(r) hypothesis(emc, selection = "factor_regressors", parameter = r, do_plot = FALSE)
+)
+bayes_factors_report <- ifelse(
+  bayes_factors > 1000,
+  "> 1000",
+  sprintf("%.2f", bayes_factors)
+)
+
+
+factor_regressor_summary <- data.frame(
+  parameter = rownames(target$factor_regressors),
+  ci_lower = target$factor_regressors[, "2.5%"],
+  estimate = target$factor_regressors[, "50%"],
+  ci_upper = target$factor_regressors[, "97.5%"],
+  BF01 = unname(bayes_factors_report),
+  row.names = NULL
+)
+
+knitr::kable(factor_regressor_summary, digits = 3)
+```
+Lastly also a helpful diagram (with this many numbers bit hard to read maybe).
+```{r}
+make_SEM_diagram(emc)
+```

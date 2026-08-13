@@ -7,7 +7,7 @@ data$task <- factor(data$task)
 # In this joint modelling example we'll look at 7 decision-making tasks
 # That all employ a cognitive conflict manipulation using congruent and
 # incongruent stimuli. The data is stored as a list of data sets
-plot_density(data, factors = c("task", "conflict_type"), layout = c(2,2))
+plot_density(data, factors = c("task", "conflict_type"), layout = c(1,2))
 
 # Split the data by task
 data_list <- split(data, data$task)
@@ -117,8 +117,125 @@ load("two_step.RData")
 # For this we'll use the plot_pars function in a slightly different way.
 # In green the hierarchical estimates, in black the two-step estimates
 plot_pars(two_step, true_pars = joint_blocked, selection = "sigma2",
-          use_prior_lim = FALSE)
+          use_prior_lim = FALSE, layout = c(2,2))
 
 # We can see the consequences of this in the correlation
 plot_pars(two_step, true_pars = joint_blocked, selection = "correlation",
           use_prior_lim = FALSE, use_par = "cue|a")
+
+
+
+# Latent variable joint models --------------------------------------------
+
+
+# We use blocked covariance matrices to help reduce the dimensionality
+# of what we're estimating. Another, more sophisticated, way to reduce the
+# dimensionality is using factor analysis. EMC2 allows you to run
+# a factor analysis on top of the cognitive model in a fully hierarchical set up.
+# This way you are left with unattenuated factor loadings.
+#
+# To set up factor analysis we construct it as a subclass of the SEM
+# type model:
+fa_settings <- make_sem_structure(
+  design = designs,
+  lambda_specs = list(
+    v = v_pars,
+    d = d_pars,
+    a = a_pars,
+    t0 = t0_pars)
+)
+
+
+prior_factor <- prior(design = designs, type = 'SEM',
+                      mu_mean = rep(c(2, 1, log(1.5), log(.2)), 7),
+                      sem_settings = fa_settings)
+
+joint_factor <- make_emc(data_list, designs, type = "SEM", prior_list = prior_factor,
+                         sem_settings = fa_settings)
+
+
+make_SEM_diagram(joint_factor, par_names = nice_names,
+                 width = 700, height = 700, layout = "nicely")
+
+joint_factor <- fit(joint_factor, cores_per_chain = 15, fileName = "joint_factor.RData")
+save(joint_factor, file = "joint_factor.RData")
+load("joint_factor.RData")
+
+make_SEM_diagram(joint_factor, par_names = nice_names,
+                 width = 900, height = 900, layout = "nicely")
+
+make_SEM_diagram(joint_factor, par_names = nice_names, cred_only = TRUE,
+                 width = 900, height = 900, layout = "nicely")
+
+
+# Some basic inference
+plot(joint_factor, selection = "std_loadings")
+credint(joint_factor, selection = "std_loadings")
+
+par(mfrow = c(1,1))
+plot_relations(joint_factor, selection = 'std_loadings', nice_names = nice_names)
+
+
+
+# Full SEM analysis -------------------------------------------------------
+# Sometimes you're also interested in more complex questions
+# How are these factors related to each other?
+# How are they related to IQ? or some personality scales?
+# That's where the larger framework of SEMs is useful.
+data$Age <- scale(data$Age)
+sem_settings <- make_sem_structure(
+  data = data,
+  design = designs,
+  covariate_cols = "Age",
+  lambda_specs = list(
+    v = v_pars,
+    d = d_pars,
+    a = a_pars,
+    t0 = t0_pars),
+  g_specs = list(
+    v = "Age",
+    d = "Age",
+    a = "Age",
+    t0 = "Age"
+  )
+)
+
+prior_SEM <- prior(design = designs, type = 'SEM',
+                   mu_mean = rep(c(2, 1, log(1.5), log(.2)), 7),
+                   sem_settings = sem_settings)
+
+joint_SEM <- make_emc(data_list, designs, type = "SEM", prior_list = prior_SEM,
+                      sem_settings = sem_settings)
+
+make_SEM_diagram(joint_SEM, par_names = nice_names)
+
+joint_SEM <- fit(joint_SEM, cores_per_chain = 15, fileName = "joint_sem.RData")
+# Ran in an hour. 190 subjects, 180.000 trials, more than 5500 parameters.
+
+save(joint_SEM, file = "joint_sem.RData")
+load("joint_sem.RData")
+
+credint(joint_SEM, selection = "std_loadings")
+plot(joint_SEM, selection = "factor_regressors")
+credint(joint_SEM, selection = "factor_regressors")
+
+
+# We can also make some nice diagrams of this
+make_SEM_diagram(joint_SEM, par_names = nice_names, cred_only = TRUE,
+                 width = 1500)
+
+
+
+# Let's finish with Bayesian inference
+credint(joint_SEM, selection = "factor_regressors")
+
+# Evidence for v, d, and t0 with age.
+hypothesis(joint_SEM, selection = "factor_regressors", parameter = "v.Age")
+hypothesis(joint_SEM, selection = "factor_regressors", parameter = "d.Age")
+hypothesis(joint_SEM, selection = "factor_regressors", parameter = "a.Age")
+hypothesis(joint_SEM, selection = "factor_regressors", parameter = "t0.Age")
+
+
+
+
+
